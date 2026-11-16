@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=22.6.0" },
   "description": "Converse com seu extrato bancario sem abrir mao da precisao dos numeros.",
   "scripts": {
     "import": "node --experimental-strip-types --no-warnings src/cli.ts import data/sample-extrato.csv",

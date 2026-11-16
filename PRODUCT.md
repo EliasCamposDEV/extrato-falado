@@ -43,7 +43,7 @@ Demo pública de portfólio, aberta em desktop e celular, muitas vezes sem inter
 ## Evidence on Hand
 
 - `data/sample-extrato.csv` — 61 lançamentos fictícios, ago–nov/2026 (rotular como sintético na interface).
-- `npm run eval` - 12/12 no planner e na resposta; `npm test` - 55 testes.
+- `npm run eval` - 12/12 no planner e na resposta; `npm test` - 65 testes.
 - README com a arquitetura e as decisões.
 
 Não existem clientes, depoimentos, números de uso ou benchmarks externos. Nada disso pode ser fabricado.

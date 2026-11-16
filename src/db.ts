@@ -44,15 +44,13 @@ export function openDb(file = ':memory:'): Db {
   db.exec('CREATE TABLE IF NOT EXISTS category_overrides (merchant TEXT PRIMARY KEY, category TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime(\'now\')))');
   db.exec('CREATE TABLE IF NOT EXISTS budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, month TEXT NOT NULL, limit_cents INTEGER NOT NULL, UNIQUE(category, month))');
   // migracao: bancos antigos sem a coluna source
-  try {
+  const cols = db.prepare("PRAGMA table_info(transactions)").all() as { name: string }[];
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('source')) {
     db.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'sample'");
-  } catch {
-    // coluna ja existe
   }
-  try {
+  if (!names.has('is_internal_transfer')) {
     db.exec('ALTER TABLE transactions ADD COLUMN is_internal_transfer INTEGER NOT NULL DEFAULT 0');
-  } catch {
-    // coluna ja existe
   }
   // indices (criados depois da migracao para nao falhar em bases antigas)
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions (posted_at)');

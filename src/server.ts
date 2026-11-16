@@ -11,7 +11,7 @@ import { compileSpec } from './query/compile.ts';
 import { executeSpec } from './query/execute.ts';
 import { renderAnswer, brl, describePeriod, shortDate } from './query/render.ts';
 import { MONTHS } from './domain/vocab.ts';
-import { monthFromIso } from './domain/dates.ts';
+import { monthFromIso, shiftMonth } from './domain/dates.ts';
 import { MAX_QUESTION_LENGTH, looksLikeInjection, sanitizeQuestion } from './domain/question.ts';
 import { parseSpec, type QuerySpec } from './query/spec.ts';
 import { applyEntityGuard } from './query/guard.ts';
@@ -126,7 +126,8 @@ async function readJson(req: IncomingMessage, maxBytes = MAX_JSON_BODY): Promise
 }
 
 function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function validMonth(value: string): boolean {
@@ -153,18 +154,6 @@ function periodFromQuery(url: URL): Period {
   const end = to ? parseDateToISO(to) : '9999-12-31';
   if (start > end) throw new Error('periodo invertido: "de" precisa vir antes de "ate"');
   return { from: start, to: end };
-}
-
-function addMonths(month: string, delta: number): string {
-  const parts = month.split('-').map(Number);
-  const year = parts[0] ?? 0;
-  const m = parts[1] ?? 1;
-  const date = new Date(Date.UTC(year, m - 1 + delta, 1));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthRange(month: string): { from: string; to: string } {
-  return monthFromIso(month);
 }
 
 /** Dias corridos entre duas datas ISO, contando as duas pontas. */
@@ -220,7 +209,7 @@ function monthOrPeriodFromQuery(url: URL): Period {
   if (!from && !to) {
     const month = url.searchParams.get('month') ?? currentMonth();
     if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
-    return monthRange(month);
+    return monthFromIso(month);
   }
   return strictPeriod(url);
 }
@@ -233,7 +222,7 @@ function compareScope(url: URL): { period: Period; previous: Period } {
   const month = url.searchParams.get('month') ?? currentMonth();
   if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
   // mês compara com o mês fechado anterior, não com "30 dias antes"
-  return { period: monthRange(month), previous: monthRange(addMonths(month, -1)) };
+  return { period: monthFromIso(month), previous: monthFromIso(shiftMonth(month, -1).from.slice(0, 7)) };
 }
 
 function categoriesForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
@@ -285,7 +274,7 @@ function comparePeriods(period: Period, previous: Period, source?: string, accou
   deltas.sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents));
 
   // recorrencias: merchants em >=3 dos ultimos 6 meses
-  const months6 = Array.from({ length: 6 }, (_, i) => addMonths(month, -i));
+  const months6 = Array.from({ length: 6 }, (_, i) => shiftMonth(month, -i).from.slice(0, 7));
   const from6 = `${months6[months6.length - 1]}-01`;
   const to6 = `${month}-31`;
   const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0', 'is_internal_transfer = 0'];
@@ -431,7 +420,7 @@ function budgetsForPeriod(period: Period, source?: string, account?: string, inc
   const endMonth = period.to.slice(0, 7);
   const limits = new Map<string, number>();
   for (const month of monthsInRange(period.from, period.to)) {
-    const bounds = monthRange(month);
+    const bounds = monthFromIso(month);
     const coveredFrom = month === startMonth ? period.from : bounds.from;
     const coveredTo = month === endMonth ? period.to : bounds.to;
     const covered = daysBetween(coveredFrom, coveredTo);

@@ -889,8 +889,13 @@ code {
 /* ---------- perguntar ---------- */
 
 .askbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   margin-top: 22px;
-  padding-bottom: 6px;
+  padding: 12px 0 6px;
+  background: var(--page);
+  border-top: 1px solid var(--rule);
 }
 
 .ask {

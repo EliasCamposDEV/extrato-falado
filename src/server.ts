@@ -129,6 +129,10 @@ function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+function validMonth(value: string): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
 /** Recorte de datas: o mês das abas ou um período livre (de/até). */
 interface Period {
   from: string;
@@ -156,7 +160,11 @@ function addMonths(month: string, delta: number): string {
 }
 
 function monthRange(month: string): { from: string; to: string } {
-  return { from: `${month}-01`, to: `${month}-31` };
+  const parts = month.split('-').map(Number);
+  const year = parts[0] ?? 0;
+  const m = parts[1] ?? 1;
+  const lastDay = new Date(year, m, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
 }
 
 function categoriesForMonth(month: string, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
@@ -767,6 +775,7 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === '/api/compare' && req.method === 'GET') {
       const month = url.searchParams.get('month') ?? currentMonth();
+      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
@@ -775,6 +784,7 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === '/api/budgets' && req.method === 'GET') {
       const month = url.searchParams.get('month') ?? currentMonth();
+      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
@@ -787,6 +797,8 @@ const server = createServer(async (req, res) => {
       const month = typeof body.month === 'string' ? body.month : currentMonth();
       const limitCents = Number(body.limitCents);
       if (!category || !Number.isFinite(limitCents) || limitCents <= 0) throw new HttpError(400, 'categoria e limite obrigatorios');
+      if (category.length > 60) throw new HttpError(400, 'categoria muito longa');
+      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
       upsertBudget(db, category, month, Math.round(limitCents));
       return sendJson(res, 200, { ok: true });
     }
@@ -819,15 +831,17 @@ const server = createServer(async (req, res) => {
       const category = typeof body.category === 'string' ? body.category : '';
       const applyAll = body.applyAll === true;
       if (!category) throw new HttpError(400, 'categoria obrigatoria');
+      if (category.length > 60) throw new HttpError(400, 'categoria muito longa');
       const row = db.prepare('SELECT merchant FROM transactions WHERE id = ?').get(id) as { merchant: string } | undefined;
       if (!row) throw new HttpError(404, 'lancamento nao encontrado');
       if (applyAll) {
-        applyOverridesToTransactions(db, row.merchant, category);
+        const changed = applyOverridesToTransactions(db, row.merchant, category);
         setOverrideCategory(db, row.merchant, category);
+        return sendJson(res, 200, { ok: true, id, category, applyAll, changes: changed });
       } else {
-        db.prepare('UPDATE transactions SET category = ?, category_source = \'manual\' WHERE id = ?').run(category, id);
+        const upd = db.prepare('UPDATE transactions SET category = ?, category_source = \'manual\' WHERE id = ?').run(category, id);
+        return sendJson(res, 200, { ok: true, id, category, applyAll, changes: Number(upd.changes ?? 0) });
       }
-      return sendJson(res, 200, { ok: true, id, category, applyAll });
     }
 
     if (url.pathname === '/api/ask' && req.method === 'POST') {

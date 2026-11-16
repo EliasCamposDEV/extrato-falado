@@ -58,6 +58,7 @@ export function openDb(file = ':memory:'): Db {
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions (posted_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions (category)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions (source)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tx_merchant ON transactions (merchant)');
   // o id ja e derivado de (conta, data, valor, estabelecimento). Um indice unico nessa
   // mesma tupla apagava compras legitimamente repetidas (duas passagens iguais no mesmo
   // dia); quem garante o dedupe do reimport e o id + o fitid.
@@ -200,10 +201,6 @@ export function getOverrideCategory(db: Db, merchant: string): string | null {
 
 export function setOverrideCategory(db: Db, merchant: string, category: string): void {
   db.prepare('INSERT INTO category_overrides (merchant, category) VALUES (?, ?) ON CONFLICT(merchant) DO UPDATE SET category = excluded.category, updated_at = datetime(\'now\')').run(merchant, category);
-}
-
-export function listOverrides(db: Db): { merchant: string; category: string }[] {
-  return db.prepare('SELECT merchant, category FROM category_overrides ORDER BY merchant').all() as { merchant: string; category: string }[];
 }
 
 export function applyOverridesToTransactions(db: Db, merchant: string, category: string): number {

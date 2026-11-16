@@ -2112,4 +2112,6 @@ code {
 .budget-fill { height: 100%; background: var(--cover); transition: width 200ms ease; }
 .budget-over .budget-fill { background: var(--stamp); }
 .budget-warn .budget-fill { background: #b8860b; }
-.budget-numbers { font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.budget-form { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.budget-form select, .budget-form input { font-size: 12px; padding: 4px 6px; border: 1px solid var(--rule); background: var(--page); }
+.budget-remove { border: 0; background: none; cursor: pointer; color: var(--sage-deep); font-size: 16px; line-height: 1; padding: 0 4px; }

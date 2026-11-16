@@ -5,7 +5,7 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget } from './lib/api.ts';
+import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget } from './lib/api.ts';
 import {
   countLabel,
   defaultQuestion,
@@ -588,25 +588,46 @@ export default function App() {
                   <span className="budget-numbers">
                     {money(b.spentCents)} / {money(b.limitCents)} ({b.pct}%)
                   </span>
+                  <button
+                    type="button"
+                    className="budget-remove"
+                    title="remover orçamento"
+                    onClick={async () => {
+                      await deleteBudget(b.category, month);
+                      const fresh = await getBudgets(month, source, account || undefined, includeInternal);
+                      setBudgets(fresh.items);
+                    }}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
-              <button
-                type="button"
-                className="text-button"
-                onClick={async () => {
-                  const cat = window.prompt('Categoria para orçar (ex.: Alimentação):');
-                  if (!cat) return;
-                  const val = window.prompt('Limite em reais (ex.: 1800):');
-                  if (!val) return;
-                  const cents = Math.round(Number(val.replace(',', '.')) * 100);
-                  if (!Number.isFinite(cents) || cents <= 0) return;
-                  await setBudget(cat.trim(), month, cents);
-                  const fresh = await getBudgets(month, source, account || undefined, includeInternal);
-                  setBudgets(fresh.items);
-                }}
-              >
-                + definir orçamento
-              </button>
+              <div className="budget-form">
+                <select id="budget-category" defaultValue={summary?.categories?.[0]?.label ?? ''}>
+                  {(summary?.categories ?? []).map((c) => (
+                    <option key={c.label} value={c.label}>{c.label}</option>
+                  ))}
+                </select>
+                <input id="budget-limit" type="number" placeholder="limite (R$)" min="1" step="0.01" />
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={async () => {
+                    const sel = document.getElementById('budget-category') as HTMLSelectElement | null;
+                    const inp = document.getElementById('budget-limit') as HTMLInputElement | null;
+                    const cat = sel?.value ?? '';
+                    const val = inp?.value ?? '';
+                    const cents = Math.round(Number(val.replace(',', '.')) * 100);
+                    if (!cat || !Number.isFinite(cents) || cents <= 0) return;
+                    await setBudget(cat, month, cents);
+                    const fresh = await getBudgets(month, source, account || undefined, includeInternal);
+                    setBudgets(fresh.items);
+                    if (inp) inp.value = '';
+                  }}
+                >
+                  + definir orçamento
+                </button>
+              </div>
             </section>
 
             <AskBar

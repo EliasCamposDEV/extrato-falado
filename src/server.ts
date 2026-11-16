@@ -140,7 +140,24 @@ interface Period {
   to: string;
 }
 
-/** de/até na query vencem o mês; sem nenhum dos dois, cai no mês corrente. */
+/** Filtros de escopo que atravessam todas as consultas de resumo. */
+interface Scope {
+  source?: string;
+  account?: string;
+  includeInternal?: boolean;
+}
+
+/** Monta o WHERE comum a todas as consultas de resumo. */
+function scopeWhere(period: Period, scope: Scope, extra: string[] = []): { where: string; params: (string | number)[] } {
+  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
+  const params: (string | number)[] = [period.from, period.to];
+  if (scope.source && scope.source !== 'all') { clauses.push('source = ?'); params.push(scope.source); }
+  if (scope.account) { clauses.push('account = ?'); params.push(scope.account); }
+  if (!scope.includeInternal) clauses.push('is_internal_transfer = 0');
+  for (const e of extra) clauses.push(e);
+  return { where: clauses.join(' AND '), params };
+}
+
 function periodFromQuery(url: URL): Period {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
@@ -226,25 +243,17 @@ function compareScope(url: URL): { period: Period; previous: Period } {
 }
 
 function categoriesForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
-  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0'];
-  const params: (string | number)[] = [from, to];
-  if (source) { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
-  if (!includeInternal) clauses.push('is_internal_transfer = 0');
+  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal }, ['amount_cents < 0']);
   const rows = db
-    .prepare(`SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY category ORDER BY total_cents DESC`)
+    .prepare(`SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n FROM transactions WHERE ${where} GROUP BY category ORDER BY total_cents DESC`)
     .all(...params) as { label: string; total_cents: number; n: number }[];
   return rows.map((r) => ({ label: r.label, totalCents: Number(r.total_cents), count: Number(r.n) }));
 }
 
 function totalsForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
-  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
-  const params: (string | number)[] = [from, to];
-  if (source) { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
-  if (!includeInternal) clauses.push('is_internal_transfer = 0');
+  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
   const row = db
-    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${clauses.join(' AND ')}`)
+    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${where}`)
     .get(...params) as { out_cents: number; in_cents: number; n: number };
   return { outCents: Math.abs(Number(row.out_cents)), inCents: Number(row.in_cents), count: Number(row.n) };
 }
@@ -277,12 +286,9 @@ function comparePeriods(period: Period, previous: Period, source?: string, accou
   const months6 = Array.from({ length: 6 }, (_, i) => shiftMonth(month, -i).from.slice(0, 7));
   const from6 = `${months6[months6.length - 1]}-01`;
   const to6 = `${month}-31`;
-  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0', 'is_internal_transfer = 0'];
-  const params: (string | number)[] = [from6, to6];
-  if (source) { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
+  const { where, params } = scopeWhere({ from: from6, to: to6 }, { source, account, includeInternal: false }, ['amount_cents < 0']);
   const rows = db
-    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents, MAX(posted_at) AS last_at FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY merchant, substr(posted_at,1,7)`)
+    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents, MAX(posted_at) AS last_at FROM transactions WHERE ${where} GROUP BY merchant, substr(posted_at,1,7)`)
     .all(...params) as { merchant: string; m: string; total_cents: number; last_at: string }[];
 
   const byMerchant = new Map<string, { months: Set<string>; total: number; lastAt: string }>();
@@ -314,24 +320,19 @@ function comparePeriods(period: Period, previous: Period, source?: string, accou
 }
 
 function summary({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean) {
-  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
-  const params: (string | number)[] = [from, to];
-  if (source) { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
-  if (!includeInternal) clauses.push('is_internal_transfer = 0');
-  const where = 'WHERE ' + clauses.join(' AND ');
+  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
   const totals = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents,
               COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents,
               COUNT(*) AS n
-       FROM transactions ${where}`,
+       FROM transactions WHERE ${where}`,
     )
     .get(...params) as { out_cents: number; in_cents: number; n: number };
   const categories = db
     .prepare(
       `SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n
-       FROM transactions ${where} AND amount_cents < 0
+       FROM transactions WHERE ${where} AND amount_cents < 0
        GROUP BY category ORDER BY total_cents DESC`,
     )
     .all(...params) as { label: string; total_cents: number; n: number }[];

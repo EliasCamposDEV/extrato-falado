@@ -149,8 +149,8 @@ export function detectInternalTransfers(db: Db): number {
   // reset
   db.exec('UPDATE transactions SET is_internal_transfer = 0');
   const rows = db
-    .prepare('SELECT id, account, posted_at, amount_cents FROM transactions')
-    .all() as { id: string; account: string; posted_at: string; amount_cents: number }[];
+    .prepare('SELECT id, account, posted_at, amount_cents, merchant FROM transactions')
+    .all() as { id: string; account: string; posted_at: string; amount_cents: number; merchant: string }[];
   const byKey = new Map<string, typeof rows>();
   for (const r of rows) {
     const key = `${Math.abs(r.amount_cents)}`;
@@ -171,6 +171,10 @@ export function detectInternalTransfers(db: Db): number {
         const da = new Date(a.posted_at).getTime();
         const dbt = new Date(b.posted_at).getTime();
         if (Math.abs(da - dbt) > 3 * 86400000) continue;
+        const ma = a.merchant.toLowerCase().replace(/^enviado\s+/, '');
+        const mb = b.merchant.toLowerCase().replace(/^enviado\s+/, '');
+        const related = ma === mb || ma.includes(mb) || mb.includes(ma);
+        if (!related) continue;
         pairs.push([a.id, b.id]);
         used.add(a.id);
         used.add(b.id);

@@ -733,7 +733,11 @@ export default function App() {
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           event.target.value = '';
-          if (files.length) void (async () => { for (const f of files) await handleFile(f); })();
+          if (files.length) void (async () => {
+            for (const f of files) {
+              try { await handleFile(f); } catch { /* continua com os proximos */ }
+            }
+          })();
         }}
       />
 

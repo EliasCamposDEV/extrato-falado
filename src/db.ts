@@ -171,9 +171,9 @@ export function detectInternalTransfers(db: Db): number {
         const da = new Date(a.posted_at).getTime();
         const dbt = new Date(b.posted_at).getTime();
         if (Math.abs(da - dbt) > 3 * 86400000) continue;
-        const ma = a.merchant.toLowerCase().replace(/^enviado\s+/, '');
+const ma = a.merchant.toLowerCase().replace(/^enviado\s+/, '');
         const mb = b.merchant.toLowerCase().replace(/^enviado\s+/, '');
-        const related = ma === mb || ma.includes(mb) || mb.includes(ma);
+        const related = ma.length > 0 && mb.length > 0 && (ma === mb || ma.includes(mb) || mb.includes(ma));
         if (!related) continue;
         pairs.push([a.id, b.id]);
         used.add(a.id);

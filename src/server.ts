@@ -143,7 +143,11 @@ interface Period {
 function periodFromQuery(url: URL): Period {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
-  if (!from && !to) return monthFromIso(url.searchParams.get('month') ?? currentMonth());
+  if (!from && !to) {
+    const month = url.searchParams.get('month') ?? currentMonth();
+    if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+    return monthFromIso(month);
+  }
 
   const start = from ? parseDateToISO(from) : '0000-01-01';
   const end = to ? parseDateToISO(to) : '9999-12-31';
@@ -160,11 +164,7 @@ function addMonths(month: string, delta: number): string {
 }
 
 function monthRange(month: string): { from: string; to: string } {
-  const parts = month.split('-').map(Number);
-  const year = parts[0] ?? 0;
-  const m = parts[1] ?? 1;
-  const lastDay = new Date(year, m, 0).getDate();
-  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+  return monthFromIso(month);
 }
 
 /** Dias corridos entre duas datas ISO, contando as duas pontas. */
@@ -322,10 +322,6 @@ function comparePeriods(period: Period, previous: Period, source?: string, accou
     deltas,
     recurrences,
   };
-}
-
-function compareFromQuery(url: URL): string {
-  return url.searchParams.get('month') ?? currentMonth();
 }
 
 function summary({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean) {
@@ -902,6 +898,8 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/budgets' && req.method === 'DELETE') {
       const category = url.searchParams.get('category') ?? '';
       const month = url.searchParams.get('month') ?? currentMonth();
+      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+      if (category.length > 60) throw new HttpError(400, 'categoria muito longa');
       if (!category) throw new HttpError(400, 'categoria obrigatoria');
       deleteBudget(db, category, month);
       return sendJson(res, 200, { ok: true });
@@ -931,6 +929,9 @@ const server = createServer(async (req, res) => {
       if (category.length > 60) throw new HttpError(400, 'categoria muito longa');
       const row = db.prepare('SELECT merchant FROM transactions WHERE id = ?').get(id) as { merchant: string } | undefined;
       if (!row) throw new HttpError(404, 'lancamento nao encontrado');
+      // applyAll reclassifica TODAS as linhas do merchant em todos os meses (inclusive as
+      // manualmente categorizadas de forma diferente). Comportamento intencional: "ensinar"
+      // o app a partir de uma correcao. Para restringir, filtrar category_source <> 'manual'.
       if (applyAll) {
         const changed = applyOverridesToTransactions(db, row.merchant, category);
         setOverrideCategory(db, row.merchant, category);

@@ -78,8 +78,12 @@ export interface BudgetItem {
 export interface MonthCompare {
   month: string;
   previousMonth: string;
-  current: { month: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
-  previous: { month: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+  current: { month: string; from: string; to: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
+  previous: { month: string; from: string; to: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
   deltas: { label: string; currentCents: number; previousCents: number; deltaCents: number; deltaPct: number }[];
   recurrences: { merchant: string; months: number; avgCents: number }[];
 }

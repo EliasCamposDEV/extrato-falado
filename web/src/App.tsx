@@ -9,6 +9,7 @@ import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, get
 import {
   countLabel,
   defaultQuestion,
+  fullDate,
   money,
   monthLong,
   monthNumber,
@@ -155,8 +156,8 @@ export default function App() {
         getSummary(period, nextSource, nextAccount || undefined, nextInclude),
         getTransactions(period, 12, nextSource, nextAccount || undefined, nextInclude),
         ask(question, nextSource, nextAccount || undefined, nextInclude, undefined, nextRange ?? undefined),
-        getCompare(target, nextSource, nextAccount || undefined, nextInclude),
-        getBudgets(target, nextSource, nextAccount || undefined, nextInclude),
+        getCompare(period, nextSource, nextAccount || undefined, nextInclude),
+        getBudgets(period, nextSource, nextAccount || undefined, nextInclude),
       ]);
 
       if (monthSummary.status === 'fulfilled') {
@@ -329,9 +330,11 @@ export default function App() {
     if (loadingAll) return;
     setLoadingAll(true);
     try {
-      const all = await getTransactions(month, 200);
+      // "ver todos" pede o recorte inteiro; o teto do servidor é a única pausa possível.
+      const total = summary?.count ?? 200;
+      const all = await getTransactions(range ?? month, Math.min(Math.max(total, 12), 5000), source, account || undefined, includeInternal);
       setTransactions(all.items);
-      setAllLoaded(true);
+      setAllLoaded(all.items.length >= total);
     } catch (loadError) {
       setError(messageOf(loadError));
     } finally {
@@ -553,7 +556,7 @@ export default function App() {
             {compare && compare.previous.count > 0 ? (
               <section className="compare" aria-label="Comparação com o mês anterior">
                 <h3 className="compare-title">
-                  vs. {monthLong(compare.previousMonth)}{' '}
+                  vs. {range ? `${fullDate(compare.previousFrom)} a ${fullDate(compare.previousTo)}` : monthLong(compare.previousMonth)}{' '}
                   <span className="compare-total">
                     {compare.current.outCents > compare.previous.outCents ? '↑' : compare.current.outCents < compare.previous.outCents ? '↓' : '→'}{' '}
                     {money(Math.abs(compare.current.outCents - compare.previous.outCents))}
@@ -579,7 +582,7 @@ export default function App() {
             ) : null}
 
             <section className="budgets" aria-label="Orçamento do mês">
-              <h3 className="budgets-title">orçamento do mês</h3>
+              <h3 className="budgets-title">{range ? 'orçamento do período' : 'orçamento do mês'}</h3>
               {budgets.map((b) => (
                 <div key={b.category} className={`budget-row budget-${b.status}`}>
                   <span className="budget-cat">{b.category}</span>
@@ -589,46 +592,52 @@ export default function App() {
                   <span className="budget-numbers">
                     {money(b.spentCents)} / {money(b.limitCents)} ({b.pct}%)
                   </span>
-                  <button
-                    type="button"
-                    className="budget-remove"
-                    title="remover orçamento"
-                    onClick={async () => {
-                      await deleteBudget(b.category, month);
-                      const fresh = await getBudgets(month, source, account || undefined, includeInternal);
-                      setBudgets(fresh.items);
-                    }}
-                  >
-                    ×
-                  </button>
+                  {!range ? (
+                    <button
+                      type="button"
+                      className="budget-remove"
+                      title="remover orçamento"
+                      onClick={async () => {
+                        await deleteBudget(b.category, month);
+                        const fresh = await getBudgets(month, source, account || undefined, includeInternal);
+                        setBudgets(fresh.items);
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
               ))}
-              <div className="budget-form">
-                <select id="budget-category" defaultValue={summary?.categories?.[0]?.label ?? ''}>
-                  {(summary?.categories ?? []).map((c) => (
-                    <option key={c.label} value={c.label}>{c.label}</option>
-                  ))}
-                </select>
-                <input id="budget-limit" type="number" placeholder="limite (R$)" min="1" step="0.01" />
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={async () => {
-                    const sel = document.getElementById('budget-category') as HTMLSelectElement | null;
-                    const inp = document.getElementById('budget-limit') as HTMLInputElement | null;
-                    const cat = sel?.value ?? '';
-                    const val = inp?.value ?? '';
-                    const cents = Math.round(Number(val.replace(',', '.')) * 100);
-                    if (!cat || !Number.isFinite(cents) || cents <= 0) return;
-                    await setBudget(cat, month, cents);
-                    const fresh = await getBudgets(month, source, account || undefined, includeInternal);
-                    setBudgets(fresh.items);
-                    if (inp) inp.value = '';
-                  }}
-                >
-                  + definir orçamento
-                </button>
-              </div>
+              {range ? (
+                <p className="section-note">orçamento é mensal: escolha um mês para editar o limite.</p>
+              ) : (
+                <div className="budget-form">
+                  <select id="budget-category" defaultValue={summary?.categories?.[0]?.label ?? ''}>
+                    {(summary?.categories ?? []).map((c) => (
+                      <option key={c.label} value={c.label}>{c.label}</option>
+                    ))}
+                  </select>
+                  <input id="budget-limit" type="number" placeholder="limite (R$)" min="1" step="0.01" />
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={async () => {
+                      const sel = document.getElementById('budget-category') as HTMLSelectElement | null;
+                      const inp = document.getElementById('budget-limit') as HTMLInputElement | null;
+                      const cat = sel?.value ?? '';
+                      const val = inp?.value ?? '';
+                      const cents = Math.round(Number(val.replace(',', '.')) * 100);
+                      if (!cat || !Number.isFinite(cents) || cents <= 0) return;
+                      await setBudget(cat, month, cents);
+                      const fresh = await getBudgets(month, source, account || undefined, includeInternal);
+                      setBudgets(fresh.items);
+                      if (inp) inp.value = '';
+                    }}
+                  >
+                    + definir orçamento
+                  </button>
+                </div>
+              )}
             </section>
 
             <AskBar
@@ -648,6 +657,7 @@ export default function App() {
             totalCount={summary?.count ?? transactions.length}
             allLoaded={allLoaded}
             loadingAll={loadingAll}
+            periodLabel={range ? 'período' : 'mês'}
             categories={(summary?.categories ?? []).map((c) => c.label)}
             notice={recatMsg}
             onLoadAll={() => void loadAll()}

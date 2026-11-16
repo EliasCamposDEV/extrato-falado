@@ -167,8 +167,76 @@ function monthRange(month: string): { from: string; to: string } {
   return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
 }
 
-function categoriesForMonth(month: string, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
-  const { from, to } = monthRange(month);
+/** Dias corridos entre duas datas ISO, contando as duas pontas. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+}
+
+function addDays(iso: string, delta: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Meses (aaaa-mm) tocados por um período. */
+function monthsInRange(from: string, to: string): string[] {
+  const months: string[] = [];
+  let year = Number(from.slice(0, 4));
+  let month = Number(from.slice(5, 7));
+  const endYear = Number(to.slice(0, 4));
+  const endMonth = Number(to.slice(5, 7));
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    months.push(`${year}-${String(month).padStart(2, '0')}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+/** Período anterior de mesmo tamanho: é ele que um recorte livre compara. */
+function previousPeriod({ from, to }: Period): Period {
+  const days = daysBetween(from, to);
+  const previousTo = addDays(from, -1);
+  return { from: addDays(previousTo, -(days - 1)), to: previousTo };
+}
+
+/** Painéis de comparação/orçamento precisam de início e fim explícitos. */
+function strictPeriod(url: URL): Period {
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  if (!from || !to) throw new HttpError(400, 'informe "de" e "ate" juntos');
+  const start = parseDateToISO(from);
+  const end = parseDateToISO(to);
+  if (start > end) throw new Error('periodo invertido: "de" precisa vir antes de "ate"');
+  return { from: start, to: end };
+}
+
+function monthOrPeriodFromQuery(url: URL): Period {
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  if (!from && !to) {
+    const month = url.searchParams.get('month') ?? currentMonth();
+    if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+    return monthRange(month);
+  }
+  return strictPeriod(url);
+}
+
+function compareScope(url: URL): { period: Period; previous: Period } {
+  if (url.searchParams.get('from') || url.searchParams.get('to')) {
+    const period = strictPeriod(url);
+    return { period, previous: previousPeriod(period) };
+  }
+  const month = url.searchParams.get('month') ?? currentMonth();
+  if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+  // mês compara com o mês fechado anterior, não com "30 dias antes"
+  return { period: monthRange(month), previous: monthRange(addMonths(month, -1)) };
+}
+
+function categoriesForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
   const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0'];
   const params: (string | number)[] = [from, to];
   if (source) { clauses.push('source = ?'); params.push(source); }
@@ -180,8 +248,7 @@ function categoriesForMonth(month: string, source?: string, account?: string, in
   return rows.map((r) => ({ label: r.label, totalCents: Number(r.total_cents), count: Number(r.n) }));
 }
 
-function totalForMonth(month: string, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
-  const { from, to } = monthRange(month);
+function totalsForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
   const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
   const params: (string | number)[] = [from, to];
   if (source) { clauses.push('source = ?'); params.push(source); }
@@ -193,13 +260,14 @@ function totalForMonth(month: string, source?: string, account?: string, include
   return { outCents: Math.abs(Number(row.out_cents)), inCents: Number(row.in_cents), count: Number(row.n) };
 }
 
-function compareMonths(month: string, source?: string, account?: string, includeInternal?: boolean) {
-  const previous = addMonths(month, -1);
-  const currentTotal = totalForMonth(month, source, account, includeInternal);
-  const previousTotal = totalForMonth(previous, source, account, includeInternal);
+function comparePeriods(period: Period, previous: Period, source?: string, account?: string, includeInternal?: boolean) {
+  const month = period.to.slice(0, 7);
+  const previousMonth = previous.to.slice(0, 7);
+  const currentTotal = totalsForPeriod(period, source, account, includeInternal);
+  const previousTotal = totalsForPeriod(previous, source, account, includeInternal);
 
-  const currentCats = categoriesForMonth(month, source, account, includeInternal);
-  const previousCats = categoriesForMonth(previous, source, account, includeInternal);
+  const currentCats = categoriesForPeriod(period, source, account, includeInternal);
+  const previousCats = categoriesForPeriod(previous, source, account, includeInternal);
   const prevMap = new Map(previousCats.map((c) => [c.label, c.totalCents]));
 
   const deltas = currentCats.map((c) => {
@@ -243,9 +311,13 @@ function compareMonths(month: string, source?: string, account?: string, include
 
   return {
     month,
-    previousMonth: previous,
-    current: { month, outCents: currentTotal.outCents, inCents: currentTotal.inCents, count: currentTotal.count, categories: currentCats },
-    previous: { month: previous, outCents: previousTotal.outCents, inCents: previousTotal.inCents, count: previousTotal.count, categories: previousCats },
+    previousMonth,
+    from: period.from,
+    to: period.to,
+    previousFrom: previous.from,
+    previousTo: previous.to,
+    current: { month, from: period.from, to: period.to, ...currentTotal, categories: currentCats },
+    previous: { month: previousMonth, from: previous.from, to: previous.to, ...previousTotal, categories: previousCats },
     deltas,
     recurrences,
   };
@@ -345,24 +417,44 @@ interface StatementRow {
   amount_cents: number;
 }
 
-function budgetsForMonth(month: string, source?: string, account?: string, includeInternal?: boolean) {
-  const budgets = listBudgets(db, month);
-  const spent = categoriesForMonth(month, source, account, includeInternal);
-  const spentMap = new Map(spent.map((c) => [c.label, c.totalCents]));
-  const parts = month.split('-').map(Number);
-  const y = parts[0] ?? 0;
-  const m = parts[1] ?? 1;
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const now = new Date();
-  const dayOfMonth = (now.getFullYear() === y && now.getMonth() + 1 === m) ? now.getDate() : daysInMonth;
-  const expectedPct = Math.round((dayOfMonth / daysInMonth) * 100);
-  return budgets.map((b) => {
-    const s = spentMap.get(b.category) ?? 0;
-    const pct = b.limitCents > 0 ? Math.round((s / b.limitCents) * 100) : 0;
+/** Progresso esperado do período: 100% se já terminou, 0% se ainda não começou. */
+function expectedPctForPeriod({ from, to }: Period): number {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today < from) return 0;
+  if (today > to) return 100;
+  return Math.round((daysBetween(from, today) / daysBetween(from, to)) * 100);
+}
+
+/**
+ * Orçamento é mensal, mas o painel acompanha o período escolhido: o limite de
+ * cada mês entra rateado pelos dias daquele mês que caem no recorte.
+ */
+function budgetsForPeriod(period: Period, source?: string, account?: string, includeInternal?: boolean) {
+  const startMonth = period.from.slice(0, 7);
+  const endMonth = period.to.slice(0, 7);
+  const limits = new Map<string, number>();
+  for (const month of monthsInRange(period.from, period.to)) {
+    const bounds = monthRange(month);
+    const coveredFrom = month === startMonth ? period.from : bounds.from;
+    const coveredTo = month === endMonth ? period.to : bounds.to;
+    const covered = daysBetween(coveredFrom, coveredTo);
+    const total = daysBetween(bounds.from, bounds.to);
+    for (const budget of listBudgets(db, month)) {
+      const prorated = Math.round((budget.limitCents * covered) / total);
+      limits.set(budget.category, (limits.get(budget.category) ?? 0) + prorated);
+    }
+  }
+
+  const spentMap = new Map(categoriesForPeriod(period, source, account, includeInternal).map((c) => [c.label, c.totalCents]));
+  const expectedPct = expectedPctForPeriod(period);
+
+  return [...limits.entries()].map(([category, limitCents]) => {
+    const spentCents = spentMap.get(category) ?? 0;
+    const pct = limitCents > 0 ? Math.round((spentCents / limitCents) * 100) : 0;
     let status: 'ok' | 'warn' | 'over' = 'ok';
     if (pct >= 100) status = 'over';
     else if (pct > expectedPct + 10) status = 'warn';
-    return { category: b.category, limitCents: b.limitCents, spentCents: s, pct, expectedPct, status };
+    return { category, limitCents, spentCents, pct, expectedPct, status };
   });
 }
 
@@ -774,21 +866,24 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/compare' && req.method === 'GET') {
-      const month = url.searchParams.get('month') ?? currentMonth();
-      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+      const { period, previous } = compareScope(url);
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
-      return sendJson(res, 200, compareMonths(month, source && source !== 'all' ? source : undefined, account, includeInternal));
+      return sendJson(res, 200, comparePeriods(period, previous, source && source !== 'all' ? source : undefined, account, includeInternal));
     }
 
     if (url.pathname === '/api/budgets' && req.method === 'GET') {
-      const month = url.searchParams.get('month') ?? currentMonth();
-      if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
+      const period = monthOrPeriodFromQuery(url);
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
-      return sendJson(res, 200, { month, items: budgetsForMonth(month, source && source !== 'all' ? source : undefined, account, includeInternal) });
+      return sendJson(res, 200, {
+        month: period.to.slice(0, 7),
+        from: period.from,
+        to: period.to,
+        items: budgetsForPeriod(period, source && source !== 'all' ? source : undefined, account, includeInternal),
+      });
     }
 
     if (url.pathname === '/api/budgets' && req.method === 'POST') {
@@ -812,7 +907,8 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/transactions' && req.method === 'GET') {
-      const limit = Math.min(Number(url.searchParams.get('limit') ?? 12) || 12, 200);
+      // Teto generoso: "ver todos" num período livre é uma lista só, não uma paginação.
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? 12) || 12, 5000);
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';

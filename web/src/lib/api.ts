@@ -44,9 +44,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function getBudgets(month?: string, source?: string, account?: string, includeInternal?: boolean): Promise<{ month: string; items: BudgetItem[] }> {
+export function getBudgets(period?: Period, source?: string, account?: string, includeInternal?: boolean): Promise<{ month: string; from: string; to: string; items: BudgetItem[] }> {
   const params = new URLSearchParams();
-  if (month) params.set('month', month);
+  setPeriod(params, period);
   if (source && source !== 'all') params.set('source', source);
   if (account) params.set('account', account);
   if (includeInternal) params.set('includeInternal', '1');
@@ -65,9 +65,9 @@ export function deleteBudget(category: string, month: string): Promise<{ ok: boo
   return request(`/api/budgets?${params.toString()}`, { method: 'DELETE' });
 }
 
-export function getCompare(month?: string, source?: string, account?: string, includeInternal?: boolean): Promise<MonthCompare> {
+export function getCompare(period?: Period, source?: string, account?: string, includeInternal?: boolean): Promise<MonthCompare> {
   const params = new URLSearchParams();
-  if (month) params.set('month', month);
+  setPeriod(params, period);
   if (source && source !== 'all') params.set('source', source);
   if (account) params.set('account', account);
   if (includeInternal) params.set('includeInternal', '1');

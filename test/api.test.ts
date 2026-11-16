@@ -40,6 +40,18 @@ function post(path: string, payload: unknown): Promise<Reply> {
   });
 }
 
+function patch(path: string, payload: unknown): Promise<Reply> {
+  return call(path, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+function del(path: string): Promise<Reply> {
+  return call(path, { method: 'DELETE' });
+}
+
 /** Requisição crua: o fetch do Node ignora o header Host, e é ele que prova o DNS rebinding. */
 function rawCall(path: string, headers: Record<string, string>): Promise<Reply> {
   return new Promise((resolve, reject) => {
@@ -158,6 +170,21 @@ test('api: período livre recorta o resumo e a lista', async () => {
   for (const item of list.body.items) {
     assert.ok(item.postedAt >= '2026-08-01' && item.postedAt <= '2026-08-10', item.postedAt);
   }
+});
+
+test('api: lista combina fonte, conta e recorte (o "ver todos" da tela)', async () => {
+  const summary = await call('/api/summary?from=2026-08-01&to=2026-08-10');
+  const list = await call('/api/transactions?from=2026-08-01&to=2026-08-10&limit=200&source=sample&account=principal');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.items.length, summary.body.count);
+
+  // conta sem lançamento no recorte: nada
+  const otherAccount = await call('/api/transactions?from=2026-08-01&to=2026-08-10&limit=200&account=nubank');
+  assert.equal(otherAccount.body.items.length, 0);
+
+  // fonte que ainda não existe: nada
+  const otherSource = await call('/api/transactions?from=2026-08-01&to=2026-08-10&limit=200&source=imported');
+  assert.equal(otherSource.body.items.length, 0);
 });
 
 test('api: período invertido é recusado com 400', async () => {
@@ -286,6 +313,207 @@ test('api: Host que não é loopback é recusado (DNS rebinding)', async () => {
   assert.equal(reply.status, 403);
 });
 
+test('api: compara mês com o anterior e expõe deltas por categoria', async () => {
+  const current = await call('/api/summary?month=2026-09');
+  const previous = await call('/api/summary?month=2026-08');
+  const compare = await call('/api/compare?month=2026-09');
+
+  assert.equal(compare.status, 200);
+  assert.equal(compare.body.month, '2026-09');
+  assert.equal(compare.body.previousMonth, '2026-08');
+  assert.equal(compare.body.current.outCents, current.body.outCents);
+  assert.equal(compare.body.current.inCents, current.body.inCents);
+  assert.equal(compare.body.current.count, current.body.count);
+  assert.equal(compare.body.previous.outCents, previous.body.outCents);
+
+  // as categorias do mês cobrem o total de saídas (o delta não inventa linha)
+  const sumCurrent = compare.body.deltas.reduce((acc: number, d: any) => acc + d.currentCents, 0);
+  assert.equal(sumCurrent, current.body.outCents);
+
+  // delta = atual - anterior, com o percentual correspondente
+  const currentAlim = current.body.categories.find((c: any) => c.label === 'Alimentação');
+  const previousAlim = previous.body.categories.find((c: any) => c.label === 'Alimentação');
+  const deltaAlim = compare.body.deltas.find((d: any) => d.label === 'Alimentação');
+  assert.ok(currentAlim && previousAlim && deltaAlim);
+  assert.equal(deltaAlim.currentCents, currentAlim.totalCents);
+  assert.equal(deltaAlim.previousCents, previousAlim.totalCents);
+  assert.equal(deltaAlim.deltaCents, currentAlim.totalCents - previousAlim.totalCents);
+  assert.equal(
+    deltaAlim.deltaPct,
+    Math.round(((currentAlim.totalCents - previousAlim.totalCents) / previousAlim.totalCents) * 100),
+  );
+
+  // ordenado pelo impacto absoluto
+  const impacts = compare.body.deltas.map((d: any) => Math.abs(d.deltaCents));
+  assert.deepEqual(impacts, [...impacts].sort((a: number, b: number) => b - a));
+
+  // categoria que sumiu no mês atual entra zerada
+  for (const gone of compare.body.deltas.filter((d: any) => d.currentCents === 0)) {
+    assert.equal(gone.deltaCents, -gone.previousCents);
+    assert.equal(gone.deltaPct, -100);
+  }
+
+  assert.equal((await call('/api/compare?month=2026-13')).status, 400);
+});
+
+test('api: recorrências exigem o mesmo estabelecimento em pelo menos 3 meses', async () => {
+  const nov = await call('/api/compare?month=2026-11');
+  assert.equal(nov.status, 200);
+  assert.ok(nov.body.recurrences.length > 0);
+
+  const uber = nov.body.recurrences.find((r: any) => r.merchant === 'Uber Trip');
+  assert.ok(uber, 'Uber Trip aparece de agosto a novembro');
+  assert.ok(uber.months >= 3);
+  assert.ok(uber.avgCents > 0);
+
+  // em agosto só há um mês de histórico para trás: nada é recorrente ainda
+  const aug = await call('/api/compare?month=2026-08');
+  assert.deepEqual(aug.body.recurrences, []);
+});
+
+test('api: orçamento guarda limite, calcula gasto e ritmo, e pode ser removido', async () => {
+  const empty = await call('/api/budgets?month=2026-09');
+  assert.equal(empty.status, 200);
+  assert.equal(empty.body.month, '2026-09');
+  assert.deepEqual(empty.body.items, []);
+
+  const summary = await call('/api/summary?month=2026-09');
+  const alim = summary.body.categories.find((c: any) => c.label === 'Alimentação');
+  assert.ok(alim, 'a amostra tem Alimentação em setembro');
+
+  const created = await post('/api/budgets', { category: 'Alimentação', month: '2026-09', limitCents: 50000 });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.ok, true);
+
+  const list = await call('/api/budgets?month=2026-09');
+  const item = list.body.items.find((i: any) => i.category === 'Alimentação');
+  assert.ok(item);
+  assert.equal(item.limitCents, 50000);
+  assert.equal(item.spentCents, alim.totalCents);
+  assert.equal(item.pct, Math.round((alim.totalCents / 50000) * 100));
+  assert.ok(item.expectedPct >= 1 && item.expectedPct <= 100);
+  const expectedStatus = item.pct >= 100 ? 'over' : item.pct > item.expectedPct + 10 ? 'warn' : 'ok';
+  assert.equal(item.status, expectedStatus);
+
+  // orçamento vale só para o mês pedido
+  const other = await call('/api/budgets?month=2026-10');
+  assert.ok(!other.body.items.some((i: any) => i.category === 'Alimentação'));
+
+  // limite novo substitui o anterior (upsert) e gasto acima do limite vira "over"
+  await post('/api/budgets', { category: 'Alimentação', month: '2026-09', limitCents: 1000 });
+  const updated = (await call('/api/budgets?month=2026-09')).body.items.find((i: any) => i.category === 'Alimentação');
+  assert.equal(updated.limitCents, 1000);
+  assert.equal(updated.status, 'over');
+
+  // apagar no mês errado não remove
+  await del(`/api/budgets?month=2026-10&category=${encodeURIComponent('Alimentação')}`);
+  assert.ok((await call('/api/budgets?month=2026-09')).body.items.some((i: any) => i.category === 'Alimentação'));
+
+  const removed = await del(`/api/budgets?month=2026-09&category=${encodeURIComponent('Alimentação')}`);
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await call('/api/budgets?month=2026-09')).body.items, []);
+});
+
+test('api: orçamento recusa categoria, limite e mês inválidos', async () => {
+  assert.equal((await post('/api/budgets', { month: '2026-09', limitCents: 100 })).status, 400);
+  assert.equal((await post('/api/budgets', { category: 'Alimentação', month: '2026-09', limitCents: 0 })).status, 400);
+  assert.equal((await post('/api/budgets', { category: 'Alimentação', month: '2026-13', limitCents: 100 })).status, 400);
+  assert.equal((await post('/api/budgets', { category: 'x'.repeat(61), month: '2026-09', limitCents: 100 })).status, 400);
+  assert.equal((await call('/api/budgets?month=13-2026')).status, 400);
+  assert.equal((await del('/api/budgets?month=2026-09')).status, 400);
+});
+
+test('api: comparação aceita período livre e usa o período anterior de mesmo tamanho', async () => {
+  const current = await call('/api/summary?from=2026-09-01&to=2026-09-10');
+  const previous = await call('/api/summary?from=2026-08-22&to=2026-08-31');
+  const compare = await call('/api/compare?from=2026-09-01&to=2026-09-10');
+
+  assert.equal(compare.status, 200);
+  assert.equal(compare.body.from, '2026-09-01');
+  assert.equal(compare.body.to, '2026-09-10');
+  assert.equal(compare.body.previousFrom, '2026-08-22');
+  assert.equal(compare.body.previousTo, '2026-08-31');
+  assert.equal(compare.body.month, '2026-09');
+  assert.equal(compare.body.previousMonth, '2026-08');
+  assert.equal(compare.body.current.outCents, current.body.outCents);
+  assert.equal(compare.body.current.count, current.body.count);
+  assert.equal(compare.body.previous.outCents, previous.body.outCents);
+
+  const sumCurrent = compare.body.deltas.reduce((acc: number, d: any) => acc + d.currentCents, 0);
+  assert.equal(sumCurrent, current.body.outCents);
+
+  // 10 dias comparam com os 10 dias anteriores, não com o mês de agosto fechado
+  const august = await call('/api/summary?month=2026-08');
+  assert.notEqual(compare.body.previous.outCents, august.body.outCents);
+
+  assert.equal((await call('/api/compare?from=2026-09-01')).status, 400);
+  assert.equal((await call('/api/compare?from=2026-09-10&to=2026-09-01')).status, 400);
+});
+
+test('api: orçamento aceita período livre rateando o limite pelos dias cobertos', async () => {
+  assert.equal((await post('/api/budgets', { category: 'Alimentação', month: '2026-09', limitCents: 30000 })).status, 200);
+
+  const range = await call('/api/budgets?from=2026-09-01&to=2026-09-10');
+  assert.equal(range.status, 200);
+  assert.equal(range.body.from, '2026-09-01');
+  assert.equal(range.body.to, '2026-09-10');
+  const item = range.body.items.find((i: any) => i.category === 'Alimentação');
+  assert.ok(item);
+  // 10 dos 30 dias de setembro
+  assert.equal(item.limitCents, 10000);
+
+  const summary = await call('/api/summary?from=2026-09-01&to=2026-09-10');
+  const spent = summary.body.categories.find((c: any) => c.label === 'Alimentação')?.totalCents ?? 0;
+  assert.equal(item.spentCents, spent);
+  assert.equal(item.pct, Math.round((spent / 10000) * 100));
+  assert.equal(item.expectedPct, 100);
+  const expectedStatus = item.pct >= 100 ? 'over' : item.pct > item.expectedPct + 10 ? 'warn' : 'ok';
+  assert.equal(item.status, expectedStatus);
+
+  // período que atravessa dois meses: só setembro tem orçamento (15 de 30 dias)
+  const crossing = await call('/api/budgets?from=2026-08-15&to=2026-09-15');
+  const crossingItem = crossing.body.items.find((i: any) => i.category === 'Alimentação');
+  assert.equal(crossingItem.limitCents, 15000);
+
+  assert.equal((await call('/api/budgets?from=2026-09-01')).status, 400);
+
+  await del(`/api/budgets?month=2026-09&category=${encodeURIComponent('Alimentação')}`);
+  assert.deepEqual((await call('/api/budgets?month=2026-09')).body.items, []);
+});
+
+test('api: reclassificar um lançamento muda só ele', async () => {
+  const list = await call('/api/transactions?month=2026-10&limit=200');
+  const uber = list.body.items.filter((i: any) => i.merchant === 'Uber Trip');
+  assert.equal(uber.length, 2, 'a amostra tem duas corridas da Uber em outubro');
+  const [first, second] = uber;
+  assert.equal(first.category, 'Transporte');
+  assert.ok(first.id, 'a lista precisa devolver o id para reclassificar');
+
+  const patched = await patch(`/api/transactions/${encodeURIComponent(first.id)}`, { category: 'Lazer', applyAll: false });
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.changes, 1);
+  assert.equal(patched.body.applyAll, false);
+
+  const after = await call('/api/transactions?month=2026-10&limit=200');
+  assert.equal(after.body.items.find((i: any) => i.id === first.id).category, 'Lazer');
+  assert.equal(after.body.items.find((i: any) => i.id === second.id).category, 'Transporte');
+
+  // devolve a categoria original para não deixar estado para os próximos testes
+  await patch(`/api/transactions/${encodeURIComponent(first.id)}`, { category: 'Transporte', applyAll: false });
+  const restored = await call('/api/transactions?month=2026-10&limit=200');
+  assert.equal(restored.body.items.find((i: any) => i.id === first.id).category, 'Transporte');
+});
+
+test('api: reclassificação recusa id inexistente e categoria inválida', async () => {
+  const missing = await patch('/api/transactions/nao-existe', { category: 'Lazer' });
+  assert.equal(missing.status, 404);
+
+  const list = await call('/api/transactions?month=2026-10&limit=1');
+  const id = list.body.items[0].id;
+  assert.equal((await patch(`/api/transactions/${encodeURIComponent(id)}`, { category: '' })).status, 400);
+  assert.equal((await patch(`/api/transactions/${encodeURIComponent(id)}`, { category: 'x'.repeat(61) })).status, 400);
+});
+
 test('api: importar CSV grava e a segunda importação não duplica', async () => {
   const csv = ['data;descricao;valor', '05/03/2026;PADARIA TESTE API;-10,00', '06/03/2026;MERCADO TESTE API;-25,50'].join(
     '\n',
@@ -305,6 +533,47 @@ test('api: importar CSV grava e a segunda importação não duplica', async () =
 
   const summary = await call('/api/summary?month=2026-03');
   assert.equal(summary.body.count, 2);
+});
+
+test('api: aplicar a todos grava override e o próximo import já usa a categoria', async () => {
+  const march = await call('/api/transactions?month=2026-03&limit=200');
+  const padaria = march.body.items.find((i: any) => i.merchant === 'Padaria Teste Api');
+  const mercado = march.body.items.find((i: any) => i.merchant === 'Mercado Teste Api');
+  assert.ok(padaria && mercado);
+
+  const applied = await patch(`/api/transactions/${encodeURIComponent(padaria.id)}`, { category: 'Transporte', applyAll: true });
+  assert.equal(applied.status, 200);
+  assert.equal(applied.body.applyAll, true);
+  assert.equal(applied.body.changes, 1);
+
+  // sem applyAll, a mudança não vira override do estabelecimento
+  const single = await patch(`/api/transactions/${encodeURIComponent(mercado.id)}`, { category: 'Lazer', applyAll: false });
+  assert.equal(single.status, 200);
+  assert.equal(single.body.changes, 1);
+
+  const csv = [
+    'data;descricao;valor',
+    '05/04/2026;PADARIA TESTE API;-7,00',
+    '05/04/2026;MERCADO TESTE API;-9,00',
+  ].join('\n');
+  const imported = await post('/api/import', { filename: 'abril.csv', content: csv });
+  assert.equal(imported.status, 200);
+  assert.equal(imported.body.inserted, 2);
+  assert.equal(imported.body.month, '2026-04');
+
+  const april = await call('/api/transactions?month=2026-04&limit=200');
+  const newPadaria = april.body.items.find((i: any) => i.merchant === 'Padaria Teste Api');
+  const newMercado = april.body.items.find((i: any) => i.merchant === 'Mercado Teste Api');
+  assert.ok(newPadaria && newMercado);
+  assert.equal(newPadaria.category, 'Transporte', 'o override do estabelecimento vale no próximo import');
+  assert.notEqual(newMercado.category, 'Lazer', 'reclassificação avulsa não vira override');
+
+  // reimportar não duplica e mantém a categoria aprendida
+  const again = await post('/api/import', { filename: 'abril.csv', content: csv });
+  assert.equal(again.body.inserted, 0);
+  assert.equal(again.body.duplicates, 2);
+  const aprilAgain = await call('/api/transactions?month=2026-04&limit=200');
+  assert.equal(aprilAgain.body.items.find((i: any) => i.merchant === 'Padaria Teste Api').category, 'Transporte');
 });
 
 test('api: reset no modo all informa quantos lançamentos apagou', async () => {

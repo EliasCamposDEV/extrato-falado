@@ -8,13 +8,15 @@ interface TransactionsProps {
   totalCount: number;
   allLoaded: boolean;
   loadingAll: boolean;
+  /** "mês" ou "período": o recorte em tela, para os textos não mentirem. */
+  periodLabel: string;
   categories: string[];
   notice?: string | null;
   onLoadAll: () => void;
   onRecategorize: (id: string, category: string, applyAll: boolean) => Promise<void>;
 }
 
-export function Transactions({ items, totalCount, allLoaded, loadingAll, categories, notice, onLoadAll, onRecategorize }: TransactionsProps) {
+export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize }: TransactionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const canLoadMore = !allLoaded && totalCount > items.length;
@@ -32,14 +34,14 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, categor
   return (
     <section id="lancamentos" className="section" aria-labelledby="lancamentos-title">
       <div className="section-head">
-        <h2 id="lancamentos-title">Lançamentos do mês</h2>
+        <h2 id="lancamentos-title">Lançamentos do {periodLabel}</h2>
         <p>
           {countLabel(items.length, 'linha', 'linhas')} de {countLabel(totalCount, 'lançamento', 'lançamentos')}
         </p>
       </div>
 
       {items.length === 0 ? (
-        <p className="section-empty">Nenhum lançamento neste mês.</p>
+        <p className="section-empty">Nenhum lançamento neste {periodLabel}.</p>
       ) : (
         <div className="expenses">
           <div className="expenses-head">
@@ -104,7 +106,7 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, categor
           </button>
         ) : (
           <span className="section-note">
-            {items.length > 0 ? 'todos os lançamentos do mês na folha' : 'nada para listar'}
+            {items.length > 0 ? `todos os lançamentos do ${periodLabel} na folha` : 'nada para listar'}
           </span>
         )}
         <span className="section-note">valor calculado por SQLite</span>

@@ -90,7 +90,7 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 | `web/src/` | React: caderneta, carimbo do período, folha de prova e recibo de importação |
 | `web/src/styles.css` | sistema visual: paleta, tipografia, responsivo e movimento |
 | `test/core.test.ts` | 37 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, guard, continuação, ponta a ponta) |
-| `test/api.test.ts` | 18 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, import, reset, PDF e as guardas de segurança |
+| `test/api.test.ts` | 28 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, comparação (mês e período livre), orçamento (mês e período rateado), reclassificação (inclusive o override que o import passa a usar), import, reset, PDF e as guardas de segurança |
 
 ### Rotas da API
 
@@ -98,7 +98,10 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 |---|---|
 | `GET /api/health` | estado do banco, planner ativo e contas |
 | `GET /api/summary` | resumo de um mês (`?month=`) ou período (`?from=&to=`): entradas, saídas, categorias, meses e contas |
-| `GET /api/transactions` | lançamentos do mês ou período, com limite |
+| `GET /api/transactions` | lançamentos do mês ou período, com limite (combina `source`, `account` e `includeInternal`) |
+| `GET /api/compare` | compara o mês (com o mês fechado anterior) ou um período livre (com o período anterior de mesmo tamanho) |
+| `GET/POST/DELETE /api/budgets` | orçamento mensal por categoria com gasto e ritmo; o GET também aceita período livre (limite rateado pelos dias cobertos) |
+| `PATCH /api/transactions/:id` | corrige a categoria de um lançamento; `applyAll` grava o override do estabelecimento |
 | `POST /api/ask` | pergunta → `QuerySpec`, SQL, parâmetros, número e resposta |
 | `POST /api/import` | CSV/OFX em texto ou PDF em base64, com recibo |
 | `POST /api/reset` | apaga a amostra, o importado ou tudo |
@@ -135,7 +138,7 @@ npm run ask -- "quanto gastei em outubro"
 npm run demo                            # 5 perguntas de demonstração
 npm run eval                            # mede planner e resposta (heurístico)
 npm run eval -- --llm                   # mede o planner configurado (usa a rede)
-npm test                                # 55 testes (37 de unidade + 18 de API)
+npm test                                # 65 testes (37 de unidade + 28 de API)
 npm run typecheck
 ```
 
@@ -220,7 +223,7 @@ O planner heurístico serve de **baseline**: uma LLM só se justifica se bater i
 
 **Bullets:**
 
-> Assistente de finanças pessoais que responde perguntas em linguagem natural sobre extratos bancários. Arquitetura "LLM planeja, SQL executa": o modelo gera um AST validado e o SQLite calcula, eliminando alucinação numérica (12/12 casos no eval, 55 testes, typecheck limpo).
+> Assistente de finanças pessoais que responde perguntas em linguagem natural sobre extratos bancários. Arquitetura "LLM planeja, SQL executa": o modelo gera um AST validado e o SQLite calcula, eliminando alucinação numérica (12/12 casos no eval, 65 testes, typecheck limpo).
 
 > Planner com repair loop, validação de AST com mensagens acionáveis e SQL 100% parametrizado. Categorização híbrida regra + kNN TF-IDF, offline e a custo zero por transação.
 

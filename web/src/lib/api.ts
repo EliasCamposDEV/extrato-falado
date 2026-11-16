@@ -148,7 +148,7 @@ export function exportProof(question: string, spec: unknown): Promise<void> {
   );
 }
 
-export function recategorize(id: string, category: string, applyAll: boolean): Promise<{ ok: boolean; id: string; category: string; applyAll: boolean }> {
+export function recategorize(id: string, category: string, applyAll: boolean): Promise<{ ok: boolean; id: string; category: string; applyAll: boolean; changes: number }> {
   return request(`/api/transactions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },

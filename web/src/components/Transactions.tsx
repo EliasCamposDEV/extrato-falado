@@ -9,11 +9,12 @@ interface TransactionsProps {
   allLoaded: boolean;
   loadingAll: boolean;
   categories: string[];
+  notice?: string | null;
   onLoadAll: () => void;
   onRecategorize: (id: string, category: string, applyAll: boolean) => Promise<void>;
 }
 
-export function Transactions({ items, totalCount, allLoaded, loadingAll, categories, onLoadAll, onRecategorize }: TransactionsProps) {
+export function Transactions({ items, totalCount, allLoaded, loadingAll, categories, notice, onLoadAll, onRecategorize }: TransactionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const canLoadMore = !allLoaded && totalCount > items.length;
@@ -96,6 +97,7 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, categor
       )}
 
       <div className="section-foot">
+        {notice ? <span className="section-note">{notice}</span> : null}
         {canLoadMore ? (
           <button type="button" className="text-button" onClick={onLoadAll} disabled={loadingAll}>
             {loadingAll ? 'Abrindo a caderneta…' : `Ver todos os ${totalCount} lançamentos`}

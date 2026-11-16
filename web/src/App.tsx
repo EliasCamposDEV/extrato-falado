@@ -58,6 +58,7 @@ export default function App() {
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [compare, setCompare] = useState<MonthCompare | null>(null);
   const [budgets, setBudgets] = useState<BudgetItem[]>([]);
+  const [recatMsg, setRecatMsg] = useState<string | null>(null);
   const [months, setMonths] = useState<string[]>([]);
   const [month, setMonth] = useState('');
   const [range, setRange] = useState<Range | null>(null);
@@ -648,9 +649,11 @@ export default function App() {
             allLoaded={allLoaded}
             loadingAll={loadingAll}
             categories={(summary?.categories ?? []).map((c) => c.label)}
+            notice={recatMsg}
             onLoadAll={() => void loadAll()}
             onRecategorize={async (id, category, applyAll) => {
-              await recategorize(id, category, applyAll);
+              const res = await recategorize(id, category, applyAll);
+              setRecatMsg(applyAll ? `${res.changes} lançamento(s) reclassificado(s) para ${category}.` : `1 lançamento reclassificado para ${category}.`);
               await loadMonth(month, { range });
             }}
           />

@@ -1641,12 +1641,81 @@ code {
   color: var(--sage-deep);
 }
 .compare-recurrences {
-  margin: 8px 0 0;
+  margin-top: 10px;
+}
+
+.compare-recurrences-title {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sage-deep);
+}
+
+/* Etiquetas de caderneta: papel mais fundo, régua fina e números tabulares. */
+.recurrence-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.recurrence-chip {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px 7px;
+  background: var(--page-deep);
+  border: 1px solid var(--rule);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.recurrence-name {
   font-family: var(--mono);
   font-size: 8.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--cover);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recurrence-figures {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px dotted var(--rule);
+}
+
+.recurrence-avg {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.recurrence-avg small {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--sage-deep);
+}
+
+.recurrence-last {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sage-deep);
+  white-space: nowrap;
 }
 
 .scrim {

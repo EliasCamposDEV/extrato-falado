@@ -293,19 +293,20 @@ function comparePeriods(period: Period, previous: Period, source?: string, accou
   if (source) { clauses.push('source = ?'); params.push(source); }
   if (account) { clauses.push('account = ?'); params.push(account); }
   const rows = db
-    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY merchant, substr(posted_at,1,7)`)
-    .all(...params) as { merchant: string; m: string; total_cents: number }[];
+    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents, MAX(posted_at) AS last_at FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY merchant, substr(posted_at,1,7)`)
+    .all(...params) as { merchant: string; m: string; total_cents: number; last_at: string }[];
 
-  const byMerchant = new Map<string, { months: Set<string>; total: number }>();
+  const byMerchant = new Map<string, { months: Set<string>; total: number; lastAt: string }>();
   for (const r of rows) {
-    const entry = byMerchant.get(r.merchant) ?? { months: new Set(), total: 0 };
+    const entry = byMerchant.get(r.merchant) ?? { months: new Set(), total: 0, lastAt: '' };
     entry.months.add(r.m);
     entry.total += Number(r.total_cents);
+    if (r.last_at > entry.lastAt) entry.lastAt = r.last_at;
     byMerchant.set(r.merchant, entry);
   }
   const recurrences = [...byMerchant.entries()]
     .filter(([, v]) => v.months.size >= 3)
-    .map(([merchant, v]) => ({ merchant, months: v.months.size, avgCents: Math.round(v.total / v.months.size) }))
+    .map(([merchant, v]) => ({ merchant, months: v.months.size, avgCents: Math.round(v.total / v.months.size), lastAt: v.lastAt }))
     .sort((a, b) => b.months - a.months || b.avgCents - a.avgCents)
     .slice(0, 8);
 

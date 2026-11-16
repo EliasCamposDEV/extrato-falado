@@ -8,6 +8,7 @@ import { Transactions } from './components/Transactions.tsx';
 import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget } from './lib/api.ts';
 import {
   countLabel,
+  dayMonth,
   defaultQuestion,
   fullDate,
   money,
@@ -574,9 +575,22 @@ export default function App() {
                   ))}
                 </ul>
                 {compare.recurrences.length > 0 ? (
-                  <p className="compare-recurrences">
-                    recorrentes detectados: {compare.recurrences.map((r) => r.merchant).join(', ')}
-                  </p>
+                  <div className="compare-recurrences">
+                    <p className="compare-recurrences-title">recorrentes detectados</p>
+                    <ul className="recurrence-chips">
+                      {compare.recurrences.map((r) => (
+                        <li key={r.merchant} className="recurrence-chip">
+                          <span className="recurrence-name">{r.merchant}</span>
+                          <span className="recurrence-figures">
+                            <span className="recurrence-avg">
+                              {money(r.avgCents)}<small>média/mês</small>
+                            </span>
+                            <span className="recurrence-last">últ. {dayMonth(r.lastAt)}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : null}
               </section>
             ) : null}

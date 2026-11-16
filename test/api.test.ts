@@ -365,6 +365,8 @@ test('api: recorrências exigem o mesmo estabelecimento em pelo menos 3 meses', 
   assert.ok(uber, 'Uber Trip aparece de agosto a novembro');
   assert.ok(uber.months >= 3);
   assert.ok(uber.avgCents > 0);
+  assert.match(uber.lastAt, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(uber.lastAt <= '2026-11-30', 'o último dia cai no recorte comparado');
 
   // em agosto só há um mês de histórico para trás: nada é recorrente ainda
   const aug = await call('/api/compare?month=2026-08');

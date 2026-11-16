@@ -2,6 +2,7 @@ import type {
   AskResponse,
   ImportResult,
   MonthSummary,
+  MonthCompare,
   Range,
   Transaction,
 } from '../types.ts';
@@ -42,6 +43,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export function getCompare(month?: string, source?: string, account?: string, includeInternal?: boolean): Promise<MonthCompare> {
+  const params = new URLSearchParams();
+  if (month) params.set('month', month);
+  if (source && source !== 'all') params.set('source', source);
+  if (account) params.set('account', account);
+  if (includeInternal) params.set('includeInternal', '1');
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<MonthCompare>(`/api/compare${query}`);
+}
 export function getSummary(period?: Period, source?: string, account?: string, includeInternal?: boolean): Promise<MonthSummary> {
   const params = new URLSearchParams();
   setPeriod(params, period);

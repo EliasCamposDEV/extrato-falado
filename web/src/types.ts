@@ -66,6 +66,14 @@ export interface Range {
   to: string;
 }
 
+export interface MonthCompare {
+  month: string;
+  previousMonth: string;
+  current: { month: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
+  previous: { month: string; outCents: number; inCents: number; count: number; categories: { label: string; totalCents: number; count: number }[] };
+  deltas: { label: string; currentCents: number; previousCents: number; deltaCents: number; deltaPct: number }[];
+  recurrences: { merchant: string; months: number; avgCents: number }[];
+}
 export interface MonthSummary {
   month: string;
   from: string;

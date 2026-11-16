@@ -147,6 +147,106 @@ function periodFromQuery(url: URL): Period {
   return { from: start, to: end };
 }
 
+function addMonths(month: string, delta: number): string {
+  const parts = month.split('-').map(Number);
+  const year = parts[0] ?? 0;
+  const m = parts[1] ?? 1;
+  const date = new Date(Date.UTC(year, m - 1 + delta, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthRange(month: string): { from: string; to: string } {
+  return { from: `${month}-01`, to: `${month}-31` };
+}
+
+function categoriesForMonth(month: string, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
+  const { from, to } = monthRange(month);
+  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0'];
+  const params: (string | number)[] = [from, to];
+  if (source) { clauses.push('source = ?'); params.push(source); }
+  if (account) { clauses.push('account = ?'); params.push(account); }
+  if (!includeInternal) clauses.push('is_internal_transfer = 0');
+  const rows = db
+    .prepare(`SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY category ORDER BY total_cents DESC`)
+    .all(...params) as { label: string; total_cents: number; n: number }[];
+  return rows.map((r) => ({ label: r.label, totalCents: Number(r.total_cents), count: Number(r.n) }));
+}
+
+function totalForMonth(month: string, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
+  const { from, to } = monthRange(month);
+  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
+  const params: (string | number)[] = [from, to];
+  if (source) { clauses.push('source = ?'); params.push(source); }
+  if (account) { clauses.push('account = ?'); params.push(account); }
+  if (!includeInternal) clauses.push('is_internal_transfer = 0');
+  const row = db
+    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${clauses.join(' AND ')}`)
+    .get(...params) as { out_cents: number; in_cents: number; n: number };
+  return { outCents: Math.abs(Number(row.out_cents)), inCents: Number(row.in_cents), count: Number(row.n) };
+}
+
+function compareMonths(month: string, source?: string, account?: string, includeInternal?: boolean) {
+  const previous = addMonths(month, -1);
+  const currentTotal = totalForMonth(month, source, account, includeInternal);
+  const previousTotal = totalForMonth(previous, source, account, includeInternal);
+
+  const currentCats = categoriesForMonth(month, source, account, includeInternal);
+  const previousCats = categoriesForMonth(previous, source, account, includeInternal);
+  const prevMap = new Map(previousCats.map((c) => [c.label, c.totalCents]));
+
+  const deltas = currentCats.map((c) => {
+    const prev = prevMap.get(c.label) ?? 0;
+    const delta = c.totalCents - prev;
+    const pct = prev > 0 ? Math.round((delta / prev) * 100) : (c.totalCents > 0 ? 100 : 0);
+    return { label: c.label, currentCents: c.totalCents, previousCents: prev, deltaCents: delta, deltaPct: pct };
+  });
+  // categorias que sumiram este mes
+  for (const pc of previousCats) {
+    if (!currentCats.some((c) => c.label === pc.label)) {
+      deltas.push({ label: pc.label, currentCents: 0, previousCents: pc.totalCents, deltaCents: -pc.totalCents, deltaPct: -100 });
+    }
+  }
+  deltas.sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents));
+
+  // recorrencias: merchants em >=3 dos ultimos 6 meses
+  const months6 = Array.from({ length: 6 }, (_, i) => addMonths(month, -i));
+  const from6 = `${months6[months6.length - 1]}-01`;
+  const to6 = `${month}-31`;
+  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?', 'amount_cents < 0', 'is_internal_transfer = 0'];
+  const params: (string | number)[] = [from6, to6];
+  if (source) { clauses.push('source = ?'); params.push(source); }
+  if (account) { clauses.push('account = ?'); params.push(account); }
+  const rows = db
+    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents FROM transactions WHERE ${clauses.join(' AND ')} GROUP BY merchant, substr(posted_at,1,7)`)
+    .all(...params) as { merchant: string; m: string; total_cents: number }[];
+
+  const byMerchant = new Map<string, { months: Set<string>; total: number }>();
+  for (const r of rows) {
+    const entry = byMerchant.get(r.merchant) ?? { months: new Set(), total: 0 };
+    entry.months.add(r.m);
+    entry.total += Number(r.total_cents);
+    byMerchant.set(r.merchant, entry);
+  }
+  const recurrences = [...byMerchant.entries()]
+    .filter(([, v]) => v.months.size >= 3)
+    .map(([merchant, v]) => ({ merchant, months: v.months.size, avgCents: Math.round(v.total / v.months.size) }))
+    .sort((a, b) => b.months - a.months || b.avgCents - a.avgCents)
+    .slice(0, 8);
+
+  return {
+    month,
+    previousMonth: previous,
+    current: { month, outCents: currentTotal.outCents, inCents: currentTotal.inCents, count: currentTotal.count, categories: currentCats },
+    previous: { month: previous, outCents: previousTotal.outCents, inCents: previousTotal.inCents, count: previousTotal.count, categories: previousCats },
+    deltas,
+    recurrences,
+  };
+}
+
+function compareFromQuery(url: URL): string {
+  return url.searchParams.get('month') ?? currentMonth();
+}
+
 function summary({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean) {
   const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
   const params: (string | number)[] = [from, to];
@@ -640,6 +740,14 @@ const server = createServer(async (req, res) => {
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
       return sendJson(res, 200, summary(periodFromQuery(url), source && source !== 'all' ? source : undefined, account, includeInternal));
+    }
+
+    if (url.pathname === '/api/compare' && req.method === 'GET') {
+      const month = url.searchParams.get('month') ?? currentMonth();
+      const source = url.searchParams.get('source') ?? undefined;
+      const account = url.searchParams.get('account') ?? undefined;
+      const includeInternal = url.searchParams.get('includeInternal') === '1';
+      return sendJson(res, 200, compareMonths(month, source && source !== 'all' ? source : undefined, account, includeInternal));
     }
 
     if (url.pathname === '/api/transactions' && req.method === 'GET') {

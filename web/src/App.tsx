@@ -5,10 +5,11 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, exportProof, getSummary, getTransactions, importFile, resetData } from './lib/api.ts';
+import { ask, exportProof, getCompare, getSummary, getTransactions, importFile, resetData } from './lib/api.ts';
 import {
   countLabel,
   defaultQuestion,
+  money,
   monthLong,
   monthNumber,
   monthShort,
@@ -18,7 +19,7 @@ import {
   suggestQuestions,
 } from './lib/format.ts';
 import { useMediaQuery } from './lib/useMediaQuery.ts';
-import type { AskResponse, ImportResult, MonthSummary, Range, Transaction } from './types.ts';
+import type { AskResponse, ImportResult, MonthCompare, MonthSummary, Range, Transaction } from './types.ts';
 
 type ImportState =
   | { kind: 'ok'; result: ImportResult }
@@ -55,6 +56,7 @@ const MAX_PDF = 8 * 1024 * 1024;
 
 export default function App() {
   const [summary, setSummary] = useState<MonthSummary | null>(null);
+  const [compare, setCompare] = useState<MonthCompare | null>(null);
   const [months, setMonths] = useState<string[]>([]);
   const [month, setMonth] = useState('');
   const [range, setRange] = useState<Range | null>(null);
@@ -147,10 +149,11 @@ export default function App() {
       setPendingQuestion(question);
       setResult(null);
 
-      const [monthSummary, monthTransactions, answer] = await Promise.allSettled([
+      const [monthSummary, monthTransactions, answer, monthCompare] = await Promise.allSettled([
         getSummary(period, nextSource, nextAccount || undefined, nextInclude),
         getTransactions(period, 12, nextSource, nextAccount || undefined, nextInclude),
         ask(question, nextSource, nextAccount || undefined, nextInclude, undefined, nextRange ?? undefined),
+        getCompare(target, nextSource, nextAccount || undefined, nextInclude),
       ]);
 
       if (monthSummary.status === 'fulfilled') {
@@ -166,6 +169,11 @@ export default function App() {
         bumpEntry();
       } else {
         setError(messageOf(answer.reason));
+      }
+      if (monthCompare.status === 'fulfilled') {
+        setCompare(monthCompare.value);
+      } else {
+        setCompare(null);
       }
 
       setLoading(false);
@@ -533,6 +541,34 @@ export default function App() {
               onOpenProof={() => setProofOpen(true)}
               wholeMonth={!range}
             />
+
+            {compare && compare.previous.count > 0 ? (
+              <section className="compare" aria-label="Comparação com o mês anterior">
+                <h3 className="compare-title">
+                  vs. {monthLong(compare.previousMonth)}{' '}
+                  <span className="compare-total">
+                    {compare.current.outCents > compare.previous.outCents ? '↑' : compare.current.outCents < compare.previous.outCents ? '↓' : '→'}{' '}
+                    {money(Math.abs(compare.current.outCents - compare.previous.outCents))}
+                  </span>
+                </h3>
+                <ul className="compare-list">
+                  {compare.deltas.slice(0, 5).map((d) => (
+                    <li key={d.label} className="compare-item">
+                      <span className="compare-cat">{d.label}</span>
+                      <span className="compare-delta">
+                        {d.deltaCents > 0 ? '+' : ''}{money(d.deltaCents)}{' '}
+                        <small>({d.deltaPct > 0 ? '+' : ''}{d.deltaPct}%)</small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {compare.recurrences.length > 0 ? (
+                  <p className="compare-recurrences">
+                    recorrentes detectados: {compare.recurrences.map((r) => r.merchant).join(', ')}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
 
             <AskBar
               draft={draft}

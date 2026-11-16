@@ -466,7 +466,7 @@ export default function App() {
                 </p>
                 <p className="slip-text">
                   {importState.kind === 'ok'
-                    ? `${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} possível(is) duplicata(s) entre contas` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
+                    ? `${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} lançamento(s) aparece(m) em mais de uma conta` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
                     : importState.message}
                 </p>
               </div>
@@ -728,11 +728,12 @@ export default function App() {
         ref={fileRef}
         type="file"
         accept=".csv,.ofx,.pdf,text/csv,application/x-ofx,application/pdf"
+        multiple
         hidden
         onChange={(event) => {
-          const file = event.target.files?.[0];
+          const files = Array.from(event.target.files ?? []);
           event.target.value = '';
-          if (file) void handleFile(file);
+          if (files.length) void (async () => { for (const f of files) await handleFile(f); })();
         }}
       />
 

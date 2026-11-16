@@ -980,10 +980,7 @@ const server = createServer(async (req, res) => {
         else if (lower.includes('bradesco')) account = 'bradesco';
         else if (lower.includes('santander')) account = 'santander';
         else if (lower.includes('caixa')) account = 'caixa';
-        else {
-          const slug = filename.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
-          if (slug) account = slug;
-        }
+        // arquivos sem banco reconhecido caem em 'principal' para nao fragmentar a conta
       }
       const result = base64 ? await importPdf(db, Buffer.from(base64, 'base64'), account) : importExtrato(db, content, account);
       // a partir de um arquivo reconhecido, deixa de usar dados ficticios. CSV

@@ -2103,3 +2103,13 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+/* ---------- orcamento ---------- */
+.budgets { margin-top: 18px; padding-top: 10px; border-top: 1px dotted var(--rule); }
+.budgets-title { margin: 0 0 8px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sage-deep); font-weight: 400; }
+.budget-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; }
+.budget-cat { color: var(--ink); }
+.budget-bar { height: 6px; background: var(--page-deep); position: relative; overflow: hidden; }
+.budget-fill { height: 100%; background: var(--cover); transition: width 200ms ease; }
+.budget-over .budget-fill { background: var(--stamp); }
+.budget-warn .budget-fill { background: #b8860b; }
+.budget-numbers { font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: 11px; white-space: nowrap; }

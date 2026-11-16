@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, type Db } from './db.ts';
+import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, listBudgets, upsertBudget, deleteBudget, type Db } from './db.ts';
 import { importExtrato, importPdf } from './ingest/import.ts';
 import { parseDateToISO } from './ingest/normalize.ts';
 import { compileSpec } from './query/compile.ts';
@@ -335,6 +335,27 @@ interface StatementRow {
   merchant: string;
   category: string;
   amount_cents: number;
+}
+
+function budgetsForMonth(month: string, source?: string, account?: string, includeInternal?: boolean) {
+  const budgets = listBudgets(db, month);
+  const spent = categoriesForMonth(month, source, account, includeInternal);
+  const spentMap = new Map(spent.map((c) => [c.label, c.totalCents]));
+  const parts = month.split('-').map(Number);
+  const y = parts[0] ?? 0;
+  const m = parts[1] ?? 1;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const now = new Date();
+  const dayOfMonth = (now.getFullYear() === y && now.getMonth() + 1 === m) ? now.getDate() : daysInMonth;
+  const expectedPct = Math.round((dayOfMonth / daysInMonth) * 100);
+  return budgets.map((b) => {
+    const s = spentMap.get(b.category) ?? 0;
+    const pct = b.limitCents > 0 ? Math.round((s / b.limitCents) * 100) : 0;
+    let status: 'ok' | 'warn' | 'over' = 'ok';
+    if (pct >= 100) status = 'over';
+    else if (pct > expectedPct + 10) status = 'warn';
+    return { category: b.category, limitCents: b.limitCents, spentCents: s, pct, expectedPct, status };
+  });
 }
 
 function monthLabel(month: string): string {
@@ -750,6 +771,32 @@ const server = createServer(async (req, res) => {
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
       return sendJson(res, 200, compareMonths(month, source && source !== 'all' ? source : undefined, account, includeInternal));
+    }
+
+    if (url.pathname === '/api/budgets' && req.method === 'GET') {
+      const month = url.searchParams.get('month') ?? currentMonth();
+      const source = url.searchParams.get('source') ?? undefined;
+      const account = url.searchParams.get('account') ?? undefined;
+      const includeInternal = url.searchParams.get('includeInternal') === '1';
+      return sendJson(res, 200, { month, items: budgetsForMonth(month, source && source !== 'all' ? source : undefined, account, includeInternal) });
+    }
+
+    if (url.pathname === '/api/budgets' && req.method === 'POST') {
+      const body = await readJson(req);
+      const category = typeof body.category === 'string' ? body.category : '';
+      const month = typeof body.month === 'string' ? body.month : currentMonth();
+      const limitCents = Number(body.limitCents);
+      if (!category || !Number.isFinite(limitCents) || limitCents <= 0) throw new HttpError(400, 'categoria e limite obrigatorios');
+      upsertBudget(db, category, month, Math.round(limitCents));
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/api/budgets' && req.method === 'DELETE') {
+      const category = url.searchParams.get('category') ?? '';
+      const month = url.searchParams.get('month') ?? currentMonth();
+      if (!category) throw new HttpError(400, 'categoria obrigatoria');
+      deleteBudget(db, category, month);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (url.pathname === '/api/transactions' && req.method === 'GET') {

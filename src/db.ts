@@ -42,6 +42,7 @@ export function openDb(file = ':memory:'): Db {
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
   db.exec('CREATE TABLE IF NOT EXISTS category_overrides (merchant TEXT PRIMARY KEY, category TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime(\'now\')))');
+  db.exec('CREATE TABLE IF NOT EXISTS budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, month TEXT NOT NULL, limit_cents INTEGER NOT NULL, UNIQUE(category, month))');
   // migracao: bancos antigos sem a coluna source
   try {
     db.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'sample'");
@@ -208,5 +209,14 @@ export function listOverrides(db: Db): { merchant: string; category: string }[] 
 export function applyOverridesToTransactions(db: Db, merchant: string, category: string): number {
   const res = db.prepare('UPDATE transactions SET category = ?, category_source = \'manual\' WHERE merchant = ?').run(category, merchant);
   return Number(res.changes ?? 0);
+}
+export function listBudgets(db: Db, month: string): { category: string; limitCents: number }[] {
+  return db.prepare('SELECT category, limit_cents AS limitCents FROM budgets WHERE month = ?').all(month) as { category: string; limitCents: number }[];
+}
+export function upsertBudget(db: Db, category: string, month: string, limitCents: number): void {
+  db.prepare('INSERT INTO budgets (category, month, limit_cents) VALUES (?, ?, ?) ON CONFLICT(category, month) DO UPDATE SET limit_cents = excluded.limit_cents').run(category, month, limitCents);
+}
+export function deleteBudget(db: Db, category: string, month: string): void {
+  db.prepare('DELETE FROM budgets WHERE category = ? AND month = ?').run(category, month);
 }
 

@@ -66,6 +66,15 @@ export interface Range {
   to: string;
 }
 
+export interface BudgetItem {
+  category: string;
+  limitCents: number;
+  spentCents: number;
+  pct: number;
+  expectedPct: number;
+  status: 'ok' | 'warn' | 'over';
+}
+
 export interface MonthCompare {
   month: string;
   previousMonth: string;

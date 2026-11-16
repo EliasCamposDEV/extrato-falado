@@ -5,7 +5,7 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, exportProof, getCompare, getSummary, getTransactions, importFile, recategorize, resetData } from './lib/api.ts';
+import { ask, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget } from './lib/api.ts';
 import {
   countLabel,
   defaultQuestion,
@@ -19,7 +19,7 @@ import {
   suggestQuestions,
 } from './lib/format.ts';
 import { useMediaQuery } from './lib/useMediaQuery.ts';
-import type { AskResponse, ImportResult, MonthCompare, MonthSummary, Range, Transaction } from './types.ts';
+import type { AskResponse, BudgetItem, ImportResult, MonthCompare, MonthSummary, Range, Transaction } from './types.ts';
 
 type ImportState =
   | { kind: 'ok'; result: ImportResult }
@@ -57,6 +57,7 @@ const MAX_PDF = 8 * 1024 * 1024;
 export default function App() {
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [compare, setCompare] = useState<MonthCompare | null>(null);
+  const [budgets, setBudgets] = useState<BudgetItem[]>([]);
   const [months, setMonths] = useState<string[]>([]);
   const [month, setMonth] = useState('');
   const [range, setRange] = useState<Range | null>(null);
@@ -149,11 +150,12 @@ export default function App() {
       setPendingQuestion(question);
       setResult(null);
 
-      const [monthSummary, monthTransactions, answer, monthCompare] = await Promise.allSettled([
+      const [monthSummary, monthTransactions, answer, monthCompare, monthBudgets] = await Promise.allSettled([
         getSummary(period, nextSource, nextAccount || undefined, nextInclude),
         getTransactions(period, 12, nextSource, nextAccount || undefined, nextInclude),
         ask(question, nextSource, nextAccount || undefined, nextInclude, undefined, nextRange ?? undefined),
         getCompare(target, nextSource, nextAccount || undefined, nextInclude),
+        getBudgets(target, nextSource, nextAccount || undefined, nextInclude),
       ]);
 
       if (monthSummary.status === 'fulfilled') {
@@ -174,6 +176,11 @@ export default function App() {
         setCompare(monthCompare.value);
       } else {
         setCompare(null);
+      }
+      if (monthBudgets.status === 'fulfilled') {
+        setBudgets(monthBudgets.value.items);
+      } else {
+        setBudgets([]);
       }
 
       setLoading(false);
@@ -569,6 +576,38 @@ export default function App() {
                 ) : null}
               </section>
             ) : null}
+
+            <section className="budgets" aria-label="Orçamento do mês">
+              <h3 className="budgets-title">orçamento do mês</h3>
+              {budgets.map((b) => (
+                <div key={b.category} className={`budget-row budget-${b.status}`}>
+                  <span className="budget-cat">{b.category}</span>
+                  <div className="budget-bar">
+                    <div className="budget-fill" style={{ width: `${Math.min(100, b.pct)}%` }} />
+                  </div>
+                  <span className="budget-numbers">
+                    {money(b.spentCents)} / {money(b.limitCents)} ({b.pct}%)
+                  </span>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="text-button"
+                onClick={async () => {
+                  const cat = window.prompt('Categoria para orçar (ex.: Alimentação):');
+                  if (!cat) return;
+                  const val = window.prompt('Limite em reais (ex.: 1800):');
+                  if (!val) return;
+                  const cents = Math.round(Number(val.replace(',', '.')) * 100);
+                  if (!Number.isFinite(cents) || cents <= 0) return;
+                  await setBudget(cat.trim(), month, cents);
+                  const fresh = await getBudgets(month, source, account || undefined, includeInternal);
+                  setBudgets(fresh.items);
+                }}
+              >
+                + definir orçamento
+              </button>
+            </section>
 
             <AskBar
               draft={draft}

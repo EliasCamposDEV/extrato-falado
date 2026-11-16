@@ -41,6 +41,7 @@ export function openDb(file = ':memory:'): Db {
   const db = new DatabaseSync(file);
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  db.exec('CREATE TABLE IF NOT EXISTS category_overrides (merchant TEXT PRIMARY KEY, category TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime(\'now\')))');
   // migracao: bancos antigos sem a coluna source
   try {
     db.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'sample'");
@@ -190,3 +191,22 @@ export function detectInternalTransfers(db: Db): number {
   }
   return pairs.length;
 }
+
+export function getOverrideCategory(db: Db, merchant: string): string | null {
+  const row = db.prepare('SELECT category FROM category_overrides WHERE merchant = ?').get(merchant) as { category: string } | undefined;
+  return row?.category ?? null;
+}
+
+export function setOverrideCategory(db: Db, merchant: string, category: string): void {
+  db.prepare('INSERT INTO category_overrides (merchant, category) VALUES (?, ?) ON CONFLICT(merchant) DO UPDATE SET category = excluded.category, updated_at = datetime(\'now\')').run(merchant, category);
+}
+
+export function listOverrides(db: Db): { merchant: string; category: string }[] {
+  return db.prepare('SELECT merchant, category FROM category_overrides ORDER BY merchant').all() as { merchant: string; category: string }[];
+}
+
+export function applyOverridesToTransactions(db: Db, merchant: string, category: string): number {
+  const res = db.prepare('UPDATE transactions SET category = ?, category_source = \'manual\' WHERE merchant = ?').run(category, merchant);
+  return Number(res.changes ?? 0);
+}
+

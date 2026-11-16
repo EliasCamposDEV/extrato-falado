@@ -126,6 +126,13 @@ export function exportProof(question: string, spec: unknown): Promise<void> {
   );
 }
 
+export function recategorize(id: string, category: string, applyAll: boolean): Promise<{ ok: boolean; id: string; category: string; applyAll: boolean }> {
+  return request(`/api/transactions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ category, applyAll }),
+  });
+}
 export function getTransactions(period: Period, limit: number, source?: string, account?: string, includeInternal?: boolean): Promise<{ month: string; items: Transaction[] }> {
   const params = new URLSearchParams({ limit: String(limit) });
   setPeriod(params, period);

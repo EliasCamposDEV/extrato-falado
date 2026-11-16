@@ -91,6 +91,7 @@ export interface MonthSummary {
 }
 
 export interface Transaction {
+  id?: string;
   postedAt: string;
   description: string;
   merchant: string;

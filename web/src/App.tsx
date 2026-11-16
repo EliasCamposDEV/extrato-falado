@@ -5,7 +5,7 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, exportProof, getCompare, getSummary, getTransactions, importFile, resetData } from './lib/api.ts';
+import { ask, exportProof, getCompare, getSummary, getTransactions, importFile, recategorize, resetData } from './lib/api.ts';
 import {
   countLabel,
   defaultQuestion,
@@ -587,7 +587,12 @@ export default function App() {
             totalCount={summary?.count ?? transactions.length}
             allLoaded={allLoaded}
             loadingAll={loadingAll}
+            categories={(summary?.categories ?? []).map((c) => c.label)}
             onLoadAll={() => void loadAll()}
+            onRecategorize={async (id, category, applyAll) => {
+              await recategorize(id, category, applyAll);
+              await loadMonth(month, { range });
+            }}
           />
 
           <Mechanism />

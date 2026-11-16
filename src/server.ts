@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, type Db } from './db.ts';
+import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, type Db } from './db.ts';
 import { importExtrato, importPdf } from './ingest/import.ts';
 import { parseDateToISO } from './ingest/normalize.ts';
 import { compileSpec } from './query/compile.ts';
@@ -305,11 +305,12 @@ function transactions({ from, to }: Period, limit: number, source?: string, acco
   params.push(limit);
   const rows = db
     .prepare(
-      `SELECT posted_at, description, merchant, category, amount_cents, account
+      `SELECT id, posted_at, description, merchant, category, amount_cents, account
        FROM transactions WHERE ${clauses.join(' AND ')}
        ORDER BY posted_at DESC, ABS(amount_cents) DESC LIMIT ?`,
     )
     .all(...(params as any)) as {
+      id: string;
       posted_at: string;
       description: string;
       merchant: string;
@@ -318,6 +319,7 @@ function transactions({ from, to }: Period, limit: number, source?: string, acco
     }[];
 
   return rows.map((row) => ({
+    id: String(row.id),
     postedAt: String(row.posted_at),
     description: String(row.description),
     merchant: String(row.merchant),
@@ -760,6 +762,25 @@ const server = createServer(async (req, res) => {
         month: period.to.slice(0, 7),
         items: transactions(period, limit, source && source !== 'all' ? source : undefined, account, includeInternal),
       });
+    }
+
+    const recatMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
+    if (recatMatch && req.method === 'PATCH') {
+      const id = decodeURIComponent(recatMatch[1] ?? '');
+      if (!id) throw new HttpError(400, 'id obrigatorio');
+      const body = await readJson(req);
+      const category = typeof body.category === 'string' ? body.category : '';
+      const applyAll = body.applyAll === true;
+      if (!category) throw new HttpError(400, 'categoria obrigatoria');
+      const row = db.prepare('SELECT merchant FROM transactions WHERE id = ?').get(id) as { merchant: string } | undefined;
+      if (!row) throw new HttpError(404, 'lancamento nao encontrado');
+      if (applyAll) {
+        applyOverridesToTransactions(db, row.merchant, category);
+        setOverrideCategory(db, row.merchant, category);
+      } else {
+        db.prepare('UPDATE transactions SET category = ?, category_source = \'manual\' WHERE id = ?').run(category, id);
+      }
+      return sendJson(res, 200, { ok: true, id, category, applyAll });
     }
 
     if (url.pathname === '/api/ask' && req.method === 'POST') {

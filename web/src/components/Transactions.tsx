@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Transaction } from '../types.ts';
 import { categoryCode } from '../lib/codes.ts';
 import { countLabel, dayMonth, moneySigned } from '../lib/format.ts';
@@ -7,11 +8,25 @@ interface TransactionsProps {
   totalCount: number;
   allLoaded: boolean;
   loadingAll: boolean;
+  categories: string[];
   onLoadAll: () => void;
+  onRecategorize: (id: string, category: string, applyAll: boolean) => Promise<void>;
 }
 
-export function Transactions({ items, totalCount, allLoaded, loadingAll, onLoadAll }: TransactionsProps) {
+export function Transactions({ items, totalCount, allLoaded, loadingAll, categories, onLoadAll, onRecategorize }: TransactionsProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const canLoadMore = !allLoaded && totalCount > items.length;
+
+  const handleSave = async (id: string, category: string, applyAll: boolean) => {
+    setSaving(true);
+    try {
+      await onRecategorize(id, category, applyAll);
+      setEditingId(null);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section id="lancamentos" className="section" aria-labelledby="lancamentos-title">
@@ -34,14 +49,43 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, onLoadA
           </div>
 
           {items.map((item, index) => (
-            <div className="expense" key={`${item.postedAt}-${item.merchant}-${index}`}>
+            <div className="expense" key={item.id ?? `${item.postedAt}-${item.merchant}-${index}`}>
               <span className="code">{dayMonth(item.postedAt)}</span>
               <span className="expense-label">
                 {item.merchant}
                 <small>{item.description}</small>
               </span>
               <span className="expense-category">
-                <span className="code">{categoryCode(item.category)}</span> {item.category}
+                {editingId === item.id && item.id ? (
+                  <select
+                    autoFocus
+                    defaultValue={item.category}
+                    disabled={saving}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value && value !== item.category) {
+                        const applyAll = window.confirm('Aplicar essa categoria a todos os lançamentos deste estabelecimento?');
+                        void handleSave(item.id!, value, applyAll);
+                      } else {
+                        setEditingId(null);
+                      }
+                    }}
+                    onBlur={() => setEditingId(null)}
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <button
+                    type="button"
+                    className="category-edit"
+                    onClick={() => item.id && setEditingId(item.id)}
+                    title="corrigir categoria"
+                  >
+                    <span className="code">{categoryCode(item.category)}</span> {item.category}
+                  </button>
+                )}
               </span>
               <span className={`expense-value ${item.amountCents > 0 ? 'is-in' : ''}`}>
                 {moneySigned(item.amountCents)}

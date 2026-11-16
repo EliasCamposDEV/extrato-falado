@@ -1581,7 +1581,15 @@ code {
   padding-bottom: 1px;
 }
 
-/* ---------- comparacao com mes anterior ---------- */
+.category-edit {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--cover);
+  font: inherit;
+}
+.category-edit:hover { text-decoration: underline; }
 .compare {
   margin-top: 18px;
   padding-top: 10px;

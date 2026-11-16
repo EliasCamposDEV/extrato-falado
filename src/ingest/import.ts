@@ -1,4 +1,4 @@
-import { insertTransactions, getAccountBalance, setAccountBalance, countCrossAccountDuplicates, detectInternalTransfers, type Db } from '../db.ts';
+import { insertTransactions, getAccountBalance, setAccountBalance, countCrossAccountDuplicates, detectInternalTransfers, getOverrideCategory, type Db } from '../db.ts';
 import { classify } from '../categorize/classify.ts';
 import { parseCsv, parseCsvBalance, type ParsedRow } from './csv.ts';
 import { parseOfx, parseOfxBalance } from './ofx.ts';
@@ -101,7 +101,10 @@ function persist(
   const occurrences = new Map<string, number>();
   const rows = parsed.map((row) => {
     const merchant = normalizeMerchant(row.description);
-    const { category, source } = classify(row.description, merchant);
+    const { category: classified, source } = classify(row.description, merchant);
+    const override = getOverrideCategory(db, merchant);
+    const category = override ?? classified;
+    const categorySource = (override ? 'manual' : source) as 'rule' | 'model' | 'manual';
     const base = transactionId(account, row.postedAt, row.amountCents, merchant);
     const occurrence = (occurrences.get(base) ?? 0) + 1;
     occurrences.set(base, occurrence);
@@ -114,7 +117,7 @@ function persist(
       description: row.description,
       merchant,
       category,
-      categorySource: source,
+      categorySource,
       source: importSource,
     };
   });

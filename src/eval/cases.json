@@ -1,0 +1,62 @@
+[
+  {
+    "id": "c01",
+    "question": "quanto gastei em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out" } }
+  },
+  {
+    "id": "c02",
+    "question": "quanto gastei com iFood em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "merchants": ["ifood"] } }
+  },
+  {
+    "id": "c03",
+    "question": "quanto recebi em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "in" } }
+  },
+  {
+    "id": "c04",
+    "question": "para onde foi meu dinheiro em outubro",
+    "golden": { "intent": "breakdown", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out" }, "groupBy": "category", "limit": 5 }
+  },
+  {
+    "id": "c05",
+    "question": "quanto gastei no supermercado em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "categories": ["Supermercado"] } }
+  },
+  {
+    "id": "c06",
+    "question": "quantas vezes pedi iFood em outubro",
+    "golden": { "intent": "count", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "merchants": ["ifood"] } }
+  },
+  {
+    "id": "c07",
+    "question": "quanto gastei com transporte em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "categories": ["Transporte"] } }
+  },
+  {
+    "id": "c08",
+    "question": "quais foram meus maiores gastos em outubro",
+    "golden": { "intent": "breakdown", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out" }, "groupBy": "merchant", "limit": 5 }
+  },
+  {
+    "id": "c09",
+    "question": "quanto gastei com assinaturas em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "categories": ["Assinaturas"] } }
+  },
+  {
+    "id": "c10",
+    "question": "quanto gastei no total em setembro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-09-01", "to": "2026-09-30", "direction": "out" } }
+  },
+  {
+    "id": "c11",
+    "question": "quanto gastei acima de 300 reais em outubro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-10-01", "to": "2026-10-31", "direction": "out", "minCents": 30000 } }
+  },
+  {
+    "id": "c12",
+    "question": "quanto gastei com alimentação em setembro",
+    "golden": { "intent": "sum", "filters": { "from": "2026-09-01", "to": "2026-09-30", "direction": "out", "categories": ["Alimentação"] } }
+  }
+]

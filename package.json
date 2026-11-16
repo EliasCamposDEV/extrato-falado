@@ -1,0 +1,36 @@
+{
+  "name": "onde-foi-meu-dinheiro",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Converse com seu extrato bancario sem abrir mao da precisao dos numeros.",
+  "scripts": {
+    "import": "node --experimental-strip-types --no-warnings src/cli.ts import data/sample-extrato.csv",
+    "ask": "node --experimental-strip-types --no-warnings src/cli.ts ask",
+    "demo": "node --experimental-strip-types --no-warnings src/cli.ts demo",
+    "eval": "node --experimental-strip-types --no-warnings src/cli.ts eval",
+    "test": "node --experimental-strip-types --no-warnings --test test/core.test.ts test/api.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --experimental-strip-types --no-warnings scripts/dev.ts",
+    "dev:api": "node --experimental-strip-types --no-warnings src/server.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "start": "node --experimental-strip-types --no-warnings src/server.ts"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pdfkit": "^0.17.7",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

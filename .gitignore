@@ -1,0 +1,16 @@
+node_modules/
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+dist/
+.env
+.impeccable/review/
+*.log
+
+# traineddata do OCR (baixado uma vez)
+data/ocr/
+
+# OCR traineddata (baixado em runtime)
+*.traineddata
+

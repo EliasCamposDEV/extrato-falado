@@ -36,7 +36,7 @@ Três regras que sustentam o projeto:
 | 4 | **executar** | `src/query/execute.ts` | uma agregação no SQLite; total do recorte inteiro via `SUM(...) OVER ()`. Dinheiro é inteiro, em centavos. |
 | 5 | **responder** | `src/query/render.ts` | template pt-BR sobre o número do banco; zero token somado. |
 
-**Fora do caminho do número**, mas dentro do produto: importação e dédupe (`src/ingest/`), categorização (`src/categorize/`: regra → kNN TF-IDF → `Outros`), guard de contraparte (`src/query/guard.ts`), continuação por heurística (`src/query/context.ts`) e o resumo com os PDFs (`src/server.ts`).
+**Fora do caminho do número**, mas dentro do produto: importação e dédupe (`src/ingest/`), categorização (`src/categorize/`: regra → kNN TF-IDF → `Outros`), guard de contraparte (`src/query/guard.ts`), continuação por heurística (`src/query/context.ts`) e o resumo com os PDFs (`src/stats.ts` e `src/export-pdf.ts`).
 
 ### Extratos em PDF
 
@@ -86,7 +86,9 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 | `src/ingest/` | CSV, OFX e PDF por banco (Caixa com OCR, BB, PicPay, Santander), conferência de saldo e dédupe |
 | `src/categorize/` | regra → kNN TF-IDF → `Outros` |
 | `src/eval/` | 12 casos com spec e resposta esperadas |
-| `src/server.ts` | API local + super extrato e folha de prova em PDF |
+| `src/server.ts` | API local: roteamento, validação e guardas de segurança |
+| `src/stats.ts` | consultas de resumo, comparação, orçamento e lançamentos (todo valor sai do SQLite) |
+| `src/export-pdf.ts` | super extrato e folha de prova em PDF |
 | `web/src/` | React: caderneta, carimbo do período, folha de prova e recibo de importação |
 | `web/src/styles.css` | sistema visual: paleta, tipografia, responsivo e movimento |
 | `test/core.test.ts` | 37 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, guard, continuação, ponta a ponta) |
@@ -117,7 +119,7 @@ A demo abre pronta no último mês completo e já mostra a resposta com o SQL ao
 - **A prova é uma camada.** A folha translúcida sobre a página traz o SQL executado, os parâmetros, o planner, o tempo, `0 tokens somados` e o `QuerySpec` completo.
 - **Troca de mês pela lombada.** As abas de mês mudam o extrato inteiro: resumo, consulta padrão e lista de lançamentos.
 - **Período livre.** Os campos `de`/`até` recortam resumo, lista e consulta para qualquer intervalo; `mês todo` volta para as abas. As rotas aceitam `?month=` ou `?from=&to=`.
-- **Importa o seu arquivo.** CSV, OFX ou PDF (Caixa, BB, PicPay e Santander, com OCR quando o PDF é imagem), até 12 MB (8 MB no PDF), com recibo de linhas lidas, novas e já existentes. Arquivo que não é extrato é recusado sem apagar o que já estava carregado. O arquivo fica no SQLite do processo; nada sai da máquina.
+- **Importa o seu arquivo.** CSV, OFX ou PDF (Caixa, BB, PicPay e Santander, com OCR quando o PDF é imagem), até 12 MB (8 MB no PDF), com recibo de linhas lidas, novas e já existentes. Arquivo que não é extrato é recusado sem apagar o que já estava carregado. Os lançamentos ficam no SQLite local; nada sai da máquina.
 - **Junta tudo num super extrato.** O botão `exportar PDF` gera um PDF com capa, resumo geral, resumo por conta, os lançamentos ordenados por data com subtotal por mês e o total geral — respeitando o período livre e a fonte escolhidos na tela.
 - **Prova em papel.** A folha de prova tem um botão que baixa um PDF com a pergunta, a resposta, o número apurado, o SQL, os parâmetros e o `QuerySpec` — o mesmo recorte que estava na tela, sem replanejar.
 - **Continua a conversa.** Depois de uma resposta, o chip `e no mês anterior?` refaz a consulta no mês anterior ao da pergunta (não ao do relógio), herdando intenção e filtros.
@@ -192,42 +194,31 @@ Resposta:    12/12 (100%)
 
 O planner heurístico serve de **baseline**: uma LLM só se justifica se bater isso.
 
-## Decisões que valem uma conversa
+## Decisões de projeto
 
 1. **Dinheiro em centavos (`INTEGER`).** `0.1 + 0.2 !== 0.3`; banco não pode ter esse problema.
 2. **Nenhum valor entra na string do SQL.** Pergunta, categoria e nome de estabelecimento vão sempre como parâmetro do prepared statement — tem teste para isso.
-3. **Repair loop no planner LLM.** Se a validação falha, o erro volta como contexto e o modelo tem uma segunda chance. Sem isso, uma em cada ~10 perguntas morre por um campo faltando.
-4. **Template em vez de geração livre na resposta.** O texto é previsível, testável e não pode inventar um número que o SQL não devolveu.
-5. **Regra antes de modelo na categorização.** `ifood → Alimentação` é explicável; quando o usuário discorda da categoria, "porque casou com a regra ifood" resolve a conversa. kNN entra só no que a regra não cobre.
-6. **Dedupe pelo `fitid` do banco quando existe; senão por um id estável do lançamento.** Duas compras iguais no mesmo dia continuam sendo duas: a segunda ganha um sufixo, e reimportar o mesmo arquivo produz os mesmos sufixos e não duplica nada. Reimportar um PDF também não acusa saldo inconsistente, porque o saldo anterior vem do próprio extrato.
-7. **`QuerySpec` com validação manual, sem framework.** O AST é pequeno; a mensagem de erro é o contrato com o LLM.
-8. **Guard de contraparte.** Se a pergunta cita um nome que existe no extrato e o planner "esquece" o filtro, o servidor injeta `filters.text` — melhor recusar o total genérico do que devolver um número errado com cara de certo.
-9. **Continuação sem modelo.** "E no mês anterior?" é resolvido por heurística determinística sobre a spec anterior; o modelo não vê o histórico, então não pode inventar um recorte novo.
+3. **Template em vez de geração livre na resposta.** O texto é previsível, testável e não pode inventar um número que o SQL não devolveu.
+4. **Dedupe pelo `fitid` do banco quando existe; senão por um id estável do lançamento.** Duas compras iguais no mesmo dia continuam sendo duas; reimportar o mesmo arquivo não duplica nada.
+5. **Guard de contraparte.** Se a pergunta cita um nome que existe no extrato e o planner esquece o filtro, o servidor injeta `filters.text` — melhor recusar o total genérico do que devolver um número errado com cara de certo.
+6. **Continuação sem modelo.** "E no mês anterior?" é resolvido por heurística determinística sobre a spec anterior; o modelo não vê o histórico, então não pode inventar um recorte novo.
 
 ## Limitações (de propósito, documentadas)
 
 - O planner heurístico **ignora termo desconhecido**: "gastei em outubro com foguete" responde o total de outubro. O planner LLM devolve `fora do escopo`. É o custo de rodar offline.
-- Categorização não é perfeita; breakdown por categoria é aproximado e não há revisão manual ainda.
+- Categorização não é perfeita; o breakdown por categoria é aproximado. Pela interface dá para corrigir a categoria de um lançamento e aplicar ao estabelecimento.
 - Import é manual (CSV/OFX/PDF). Sem Open Finance.
-- "Média" usa valor absoluto; transferência entre contas próprias conta como gasto.
+- Transferências internas são detectadas por heurística (mesmo valor, sinais opostos, contas diferentes e estabelecimentos relacionados); casos ambíguos ainda podem escapar.
+- "Média" usa valor absoluto.
 
 ## Próximos passos
 
 - [x] UI web (Vite + React) com o SQL visível sobre a resposta
-- [ ] marcar transferência interna / estorno
-- [ ] orçamento por categoria com alerta
+- [x] orçamento por categoria com alerta
+- [x] transferência interna detectada automaticamente
 - [ ] "por que essa categoria?" mostrando a regra que casou
+- [ ] estorno e marcação manual de transferência
 - [ ] OFX reais de Nubank / Itaú / Inter + Open Finance
-
-## Para o currículo
-
-**Bullets:**
-
-> Assistente de finanças pessoais que responde perguntas em linguagem natural sobre extratos bancários. Arquitetura "LLM planeja, SQL executa": o modelo gera um AST validado e o SQLite calcula, eliminando alucinação numérica (12/12 casos no eval, 65 testes, typecheck limpo).
-
-> Planner com repair loop, validação de AST com mensagens acionáveis e SQL 100% parametrizado. Categorização híbrida regra + kNN TF-IDF, offline e a custo zero por transação.
-
-**Pitch de 60 segundos:** "Todo projeto de chat com dados deixa o modelo fazer a conta. Eu inverti: o modelo só traduz a pergunta para um filtro JSON validado, e quem soma é o SQLite. Com isso o número não tem como estar errado, e a resposta vem com o SQL para você auditar. O eval mede separado se ele entendeu a pergunta e se o número bateu."
 
 ---
 

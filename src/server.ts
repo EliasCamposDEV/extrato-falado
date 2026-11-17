@@ -4,13 +4,12 @@ import { readFileSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, listBudgets, upsertBudget, deleteBudget, type Db } from './db.ts';
+import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, upsertBudget, deleteBudget, type Db } from './db.ts';
 import { importExtrato, importPdf } from './ingest/import.ts';
 import { parseDateToISO } from './ingest/normalize.ts';
 import { compileSpec } from './query/compile.ts';
 import { executeSpec } from './query/execute.ts';
-import { renderAnswer, brl, describePeriod, shortDate } from './query/render.ts';
-import { MONTHS } from './domain/vocab.ts';
+import { renderAnswer } from './query/render.ts';
 import { monthFromIso, shiftMonth } from './domain/dates.ts';
 import { MAX_QUESTION_LENGTH, looksLikeInjection, sanitizeQuestion } from './domain/question.ts';
 import { parseSpec, type QuerySpec } from './query/spec.ts';
@@ -19,7 +18,15 @@ import { isFollowUp, mergeFollowUp } from './query/context.ts';
 import { heuristicPlanner, OutOfScopeError, type Planner } from './planner/fake.ts';
 import { buildPlanner } from './planner/openai.ts';
 import { loadEnvFile } from './env.ts';
-import PDFDocument from 'pdfkit';
+import {
+  budgetsForPeriod,
+  comparePeriods,
+  previousPeriod,
+  summary,
+  transactions,
+  type Period,
+} from './stats.ts';
+import { buildProofPdf, buildStatementPdf, type AskPayload } from './export-pdf.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // EXTRATO_DB aponta o banco para outro arquivo (testes de API usam um temporario)
@@ -134,30 +141,6 @@ function validMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
-/** Recorte de datas: o mês das abas ou um período livre (de/até). */
-interface Period {
-  from: string;
-  to: string;
-}
-
-/** Filtros de escopo que atravessam todas as consultas de resumo. */
-interface Scope {
-  source?: string;
-  account?: string;
-  includeInternal?: boolean;
-}
-
-/** Monta o WHERE comum a todas as consultas de resumo. */
-function scopeWhere(period: Period, scope: Scope, extra: string[] = []): { where: string; params: (string | number)[] } {
-  const clauses: string[] = ['posted_at >= ?', 'posted_at <= ?'];
-  const params: (string | number)[] = [period.from, period.to];
-  if (scope.source && scope.source !== 'all') { clauses.push('source = ?'); params.push(scope.source); }
-  if (scope.account) { clauses.push('account = ?'); params.push(scope.account); }
-  if (!scope.includeInternal) clauses.push('is_internal_transfer = 0');
-  for (const e of extra) clauses.push(e);
-  return { where: clauses.join(' AND '), params };
-}
-
 function periodFromQuery(url: URL): Period {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
@@ -171,42 +154,6 @@ function periodFromQuery(url: URL): Period {
   const end = to ? parseDateToISO(to) : '9999-12-31';
   if (start > end) throw new Error('periodo invertido: "de" precisa vir antes de "ate"');
   return { from: start, to: end };
-}
-
-/** Dias corridos entre duas datas ISO, contando as duas pontas. */
-function daysBetween(from: string, to: string): number {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
-}
-
-function addDays(iso: string, delta: number): string {
-  const date = new Date(`${iso}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + delta);
-  return date.toISOString().slice(0, 10);
-}
-
-/** Meses (aaaa-mm) tocados por um período. */
-function monthsInRange(from: string, to: string): string[] {
-  const months: string[] = [];
-  let year = Number(from.slice(0, 4));
-  let month = Number(from.slice(5, 7));
-  const endYear = Number(to.slice(0, 4));
-  const endMonth = Number(to.slice(5, 7));
-  while (year < endYear || (year === endYear && month <= endMonth)) {
-    months.push(`${year}-${String(month).padStart(2, '0')}`);
-    month += 1;
-    if (month > 12) {
-      month = 1;
-      year += 1;
-    }
-  }
-  return months;
-}
-
-/** Período anterior de mesmo tamanho: é ele que um recorte livre compara. */
-function previousPeriod({ from, to }: Period): Period {
-  const days = daysBetween(from, to);
-  const previousTo = addDays(from, -1);
-  return { from: addDays(previousTo, -(days - 1)), to: previousTo };
 }
 
 /** Painéis de comparação/orçamento precisam de início e fim explícitos. */
@@ -240,416 +187,6 @@ function compareScope(url: URL): { period: Period; previous: Period } {
   if (!validMonth(month)) throw new HttpError(400, 'mes invalido (use YYYY-MM)');
   // mês compara com o mês fechado anterior, não com "30 dias antes"
   return { period: monthFromIso(month), previous: monthFromIso(shiftMonth(month, -1).from.slice(0, 7)) };
-}
-
-function categoriesForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { label: string; totalCents: number; count: number }[] {
-  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal }, ['amount_cents < 0']);
-  const rows = db
-    .prepare(`SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n FROM transactions WHERE ${where} GROUP BY category ORDER BY total_cents DESC`)
-    .all(...params) as { label: string; total_cents: number; n: number }[];
-  return rows.map((r) => ({ label: r.label, totalCents: Number(r.total_cents), count: Number(r.n) }));
-}
-
-function totalsForPeriod({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
-  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
-  const row = db
-    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${where}`)
-    .get(...params) as { out_cents: number; in_cents: number; n: number };
-  return { outCents: Math.abs(Number(row.out_cents)), inCents: Number(row.in_cents), count: Number(row.n) };
-}
-
-function comparePeriods(period: Period, previous: Period, source?: string, account?: string, includeInternal?: boolean) {
-  const month = period.to.slice(0, 7);
-  const previousMonth = previous.to.slice(0, 7);
-  const currentTotal = totalsForPeriod(period, source, account, includeInternal);
-  const previousTotal = totalsForPeriod(previous, source, account, includeInternal);
-
-  const currentCats = categoriesForPeriod(period, source, account, includeInternal);
-  const previousCats = categoriesForPeriod(previous, source, account, includeInternal);
-  const prevMap = new Map(previousCats.map((c) => [c.label, c.totalCents]));
-
-  const deltas = currentCats.map((c) => {
-    const prev = prevMap.get(c.label) ?? 0;
-    const delta = c.totalCents - prev;
-    const pct = prev > 0 ? Math.round((delta / prev) * 100) : (c.totalCents > 0 ? 100 : 0);
-    return { label: c.label, currentCents: c.totalCents, previousCents: prev, deltaCents: delta, deltaPct: pct };
-  });
-  // categorias que sumiram este mes
-  for (const pc of previousCats) {
-    if (!currentCats.some((c) => c.label === pc.label)) {
-      deltas.push({ label: pc.label, currentCents: 0, previousCents: pc.totalCents, deltaCents: -pc.totalCents, deltaPct: -100 });
-    }
-  }
-  deltas.sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents));
-
-  // recorrencias: merchants em >=3 dos ultimos 6 meses
-  const months6 = Array.from({ length: 6 }, (_, i) => shiftMonth(month, -i).from.slice(0, 7));
-  const from6 = `${months6[months6.length - 1]}-01`;
-  const to6 = `${month}-31`;
-  const { where, params } = scopeWhere({ from: from6, to: to6 }, { source, account, includeInternal: false }, ['amount_cents < 0']);
-  const rows = db
-    .prepare(`SELECT merchant, substr(posted_at,1,7) AS m, ABS(SUM(amount_cents)) AS total_cents, MAX(posted_at) AS last_at FROM transactions WHERE ${where} GROUP BY merchant, substr(posted_at,1,7)`)
-    .all(...params) as { merchant: string; m: string; total_cents: number; last_at: string }[];
-
-  const byMerchant = new Map<string, { months: Set<string>; total: number; lastAt: string }>();
-  for (const r of rows) {
-    const entry = byMerchant.get(r.merchant) ?? { months: new Set(), total: 0, lastAt: '' };
-    entry.months.add(r.m);
-    entry.total += Number(r.total_cents);
-    if (r.last_at > entry.lastAt) entry.lastAt = r.last_at;
-    byMerchant.set(r.merchant, entry);
-  }
-  const recurrences = [...byMerchant.entries()]
-    .filter(([, v]) => v.months.size >= 3)
-    .map(([merchant, v]) => ({ merchant, months: v.months.size, avgCents: Math.round(v.total / v.months.size), lastAt: v.lastAt }))
-    .sort((a, b) => b.months - a.months || b.avgCents - a.avgCents)
-    .slice(0, 8);
-
-  return {
-    month,
-    previousMonth,
-    from: period.from,
-    to: period.to,
-    previousFrom: previous.from,
-    previousTo: previous.to,
-    current: { month, from: period.from, to: period.to, ...currentTotal, categories: currentCats },
-    previous: { month: previousMonth, from: previous.from, to: previous.to, ...previousTotal, categories: previousCats },
-    deltas,
-    recurrences,
-  };
-}
-
-function summary({ from, to }: Period, source?: string, account?: string, includeInternal?: boolean) {
-  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
-  const totals = db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents,
-              COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents,
-              COUNT(*) AS n
-       FROM transactions WHERE ${where}`,
-    )
-    .get(...params) as { out_cents: number; in_cents: number; n: number };
-  const categories = db
-    .prepare(
-      `SELECT category AS label, ABS(SUM(amount_cents)) AS total_cents, COUNT(*) AS n
-       FROM transactions WHERE ${where} AND amount_cents < 0
-       GROUP BY category ORDER BY total_cents DESC`,
-    )
-    .all(...params) as { label: string; total_cents: number; n: number }[];
-
-  const monthsWhere = [source && 'source = ?', account && 'account = ?'].filter(Boolean).join(' AND ');
-  const months = (db
-    .prepare(`SELECT DISTINCT substr(posted_at, 1, 7) AS m FROM transactions ${monthsWhere ? `WHERE ${monthsWhere}` : ''} ORDER BY m DESC`)
-    .all(...[source, account].filter(Boolean) as string[]) as { m: string }[]).map((row) => row.m);
-
-  return {
-    month: to.slice(0, 7),
-    from,
-    to,
-    outCents: Math.abs(Number(totals.out_cents)),
-    inCents: Number(totals.in_cents),
-    count: Number(totals.n),
-    categories: categories.map((row) => ({
-      label: row.label,
-      totalCents: Number(row.total_cents),
-      count: Number(row.n),
-    })),
-    months,
-    totalTransactions: source ? (source === 'imported' ? countBySource(db).imported : countBySource(db).sample) : countTransactions(db),
-    planner: planner.name,
-    source: source ?? 'all',
-    sources: countBySource(db),
-    accounts: distinctAccounts(db),
-  };
-}
-
-function transactions({ from, to }: Period, limit: number, source?: string, account?: string, includeInternal?: boolean) {
-  const clauses = ['posted_at >= ?', 'posted_at <= ?'];
-  const params: (string | number)[] = [from, to];
-  if (source) { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
-  if (!includeInternal) clauses.push('is_internal_transfer = 0');
-  params.push(limit);
-  const rows = db
-    .prepare(
-      `SELECT id, posted_at, description, merchant, category, amount_cents, account
-       FROM transactions WHERE ${clauses.join(' AND ')}
-       ORDER BY posted_at DESC, ABS(amount_cents) DESC LIMIT ?`,
-    )
-    .all(...(params as any)) as {
-      id: string;
-      posted_at: string;
-      description: string;
-      merchant: string;
-      category: string;
-      amount_cents: number;
-    }[];
-
-  return rows.map((row) => ({
-    id: String(row.id),
-    postedAt: String(row.posted_at),
-    description: String(row.description),
-    merchant: String(row.merchant),
-    category: String(row.category),
-    amountCents: Number(row.amount_cents),
-  }));
-}
-
-interface StatementRow {
-  posted_at: string;
-  account: string;
-  description: string;
-  merchant: string;
-  category: string;
-  amount_cents: number;
-}
-
-/** Progresso esperado do período: 100% se já terminou, 0% se ainda não começou. */
-function expectedPctForPeriod({ from, to }: Period): number {
-  const today = new Date().toISOString().slice(0, 10);
-  if (today < from) return 0;
-  if (today > to) return 100;
-  return Math.round((daysBetween(from, today) / daysBetween(from, to)) * 100);
-}
-
-/**
- * Orçamento é mensal, mas o painel acompanha o período escolhido: o limite de
- * cada mês entra rateado pelos dias daquele mês que caem no recorte.
- */
-function budgetsForPeriod(period: Period, source?: string, account?: string, includeInternal?: boolean) {
-  const startMonth = period.from.slice(0, 7);
-  const endMonth = period.to.slice(0, 7);
-  const limits = new Map<string, number>();
-  for (const month of monthsInRange(period.from, period.to)) {
-    const bounds = monthFromIso(month);
-    const coveredFrom = month === startMonth ? period.from : bounds.from;
-    const coveredTo = month === endMonth ? period.to : bounds.to;
-    const covered = daysBetween(coveredFrom, coveredTo);
-    const total = daysBetween(bounds.from, bounds.to);
-    for (const budget of listBudgets(db, month)) {
-      const prorated = Math.round((budget.limitCents * covered) / total);
-      limits.set(budget.category, (limits.get(budget.category) ?? 0) + prorated);
-    }
-  }
-
-  const spentMap = new Map(categoriesForPeriod(period, source, account, includeInternal).map((c) => [c.label, c.totalCents]));
-  const expectedPct = expectedPctForPeriod(period);
-
-  return [...limits.entries()].map(([category, limitCents]) => {
-    const spentCents = spentMap.get(category) ?? 0;
-    const pct = limitCents > 0 ? Math.round((spentCents / limitCents) * 100) : 0;
-    let status: 'ok' | 'warn' | 'over' = 'ok';
-    if (pct >= 100) status = 'over';
-    else if (pct > expectedPct + 10) status = 'warn';
-    return { category, limitCents, spentCents, pct, expectedPct, status };
-  });
-}
-
-function monthLabel(month: string): string {
-  const [year, number] = month.split('-');
-  return `${MONTHS[Number(number) - 1] ?? number} de ${year}`;
-}
-
-function money(cents: number): string {
-  const value = (Math.abs(cents) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${cents < 0 ? '-' : '+'} R$ ${value}`;
-}
-
-/** Valor sem sinal, para linhas que já dizem entradas/saídas. */
-const magnitude = (cents: number) => money(Math.abs(cents)).replace('+ ', '');
-
-function pdfToBuffer(build: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-    try {
-      build(doc);
-      doc.end();
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-/**
- * Super extrato: todos os lancamentos, ordenados por mes, conta e data,
- * com subtotal por mes e resumo por conta. E o papel que fecha o mes.
- */
-function buildStatementPdf(options?: { source?: string; from?: string; to?: string; account?: string; includeInternal?: boolean }): Promise<Buffer> {
-  const source = options?.source;
-  const account = options?.account;
-  const includeInternal = options?.includeInternal;
-  const clauses: string[] = [];
-  const params: (string | number)[] = [];
-  if (source && source !== 'all') { clauses.push('source = ?'); params.push(source); }
-  if (account) { clauses.push('account = ?'); params.push(account); }
-  if (options?.from) { clauses.push('posted_at >= ?'); params.push(options.from); }
-  if (options?.to) { clauses.push('posted_at <= ?'); params.push(options.to); }
-  if (!includeInternal) clauses.push('is_internal_transfer = 0');
-  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
-  const rows = db
-    .prepare(
-      `SELECT posted_at, account, description, merchant, category, amount_cents
-       FROM transactions ${where}
-       ORDER BY posted_at ASC, account ASC, ABS(amount_cents) DESC`,
-    )
-    .all(...params) as unknown as StatementRow[];
-
-  return pdfToBuffer((doc) => {
-    const left = 40;
-    const right = 555;
-    const pageBottom = 772;
-    const columns = { date: 40, account: 112, desc: 186, category: 372, value: 468 };
-
-    let y = 0;
-
-    const tableHeader = () => {
-      doc.font('Helvetica-Bold').fontSize(8).fillColor('#5F6F63');
-      doc.text('DATA', columns.date, y, { lineBreak: false });
-      doc.text('CONTA', columns.account, y, { lineBreak: false });
-      doc.text('DESCRIÇÃO', columns.desc, y, { lineBreak: false });
-      doc.text('CATEGORIA', columns.category, y, { lineBreak: false });
-      doc.text('VALOR', columns.value, y, { width: right - columns.value, align: 'right' });
-      doc.moveTo(left, y + 12).lineTo(right, y + 12).strokeColor('#CFC6B2').stroke();
-      y += 20;
-    };
-
-    const addPage = () => {
-      doc.addPage();
-      y = 48;
-      tableHeader();
-    };
-
-    const ensure = (needed: number) => {
-      if (y + needed > pageBottom) addPage();
-    };
-
-    // capa
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Onde foi o meu dinheiro?', left, 40);
-    doc.font('Helvetica').fontSize(10).fillColor('#454F5E').text('Super extrato — lançamentos consolidados', left, 64);
-    // periodo do papel: o recorte pedido ou, sem recorte, a primeira e a ultima data do banco
-    const period = options?.from && options?.to
-      ? `${shortDate(options.from)} a ${shortDate(options.to)}`
-      : rows.length
-        ? `${shortDate(rows[0]!.posted_at)} a ${shortDate(rows[rows.length - 1]!.posted_at)}`
-        : 'sem lançamentos';
-    doc.fontSize(9).fillColor('#5F6F63').text(
-      `Gerado em ${new Date().toLocaleString('pt-BR')} · ${rows.length} lançamentos · ${period}`,
-      left,
-      80,
-    );
-
-    // resumo geral
-    let totalIn = 0;
-    let totalOut = 0;
-    for (const row of rows) {
-      if (row.amount_cents > 0) totalIn += row.amount_cents;
-      else totalOut += row.amount_cents;
-    }
-
-    y = 108;
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#1A2536').text('Resumo', left, y);
-    y += 16;
-    doc.font('Helvetica').fontSize(9).fillColor('#454F5E');
-    doc.text(`Entradas: ${magnitude(totalIn)}`, left, y, { lineBreak: false });
-    doc.text(`Saídas: ${magnitude(totalOut)}`, left + 170, y, { lineBreak: false });
-    doc.text(`Saldo: ${money(totalIn + totalOut)}`, left + 340, y, { lineBreak: false });
-    y += 14;
-
-    // resumo por conta
-    const accounts = new Map<string, { n: number; inCents: number; outCents: number }>();
-    for (const row of rows) {
-      const entry = accounts.get(row.account) ?? { n: 0, inCents: 0, outCents: 0 };
-      entry.n += 1;
-      if (row.amount_cents > 0) entry.inCents += row.amount_cents;
-      else entry.outCents += row.amount_cents;
-      accounts.set(row.account, entry);
-    }
-    for (const [account, entry] of accounts) {
-      doc.fillColor('#5F6F63').text(
-        `${account} · ${entry.n} lançamentos · entradas ${magnitude(entry.inCents)} · saídas ${magnitude(entry.outCents)}`,
-        left,
-        y,
-        { lineBreak: false },
-      );
-      y += 12;
-    }
-
-    // totais por mes numa passada: antes cada virada de mes filtrava a lista inteira
-    const monthTotals = new Map<string, { n: number; inCents: number; outCents: number }>();
-    for (const row of rows) {
-      const key = row.posted_at.slice(0, 7);
-      const entry = monthTotals.get(key) ?? { n: 0, inCents: 0, outCents: 0 };
-      entry.n += 1;
-      if (row.amount_cents > 0) entry.inCents += row.amount_cents;
-      else entry.outCents += row.amount_cents;
-      monthTotals.set(key, entry);
-    }
-
-    // lancamentos agrupados por mes
-    let currentMonth = '';
-    for (let index = 0; index < rows.length; index++) {
-      const row = rows[index]!;
-      const rowMonth = row.posted_at.slice(0, 7);
-
-      if (rowMonth !== currentMonth) {
-        currentMonth = rowMonth;
-        const month = monthTotals.get(rowMonth)!;
-
-        ensure(96);
-        y += 16;
-        doc.moveTo(left, y).lineTo(right, y).strokeColor('#CFC6B2').stroke();
-        y += 10;
-        doc.font('Helvetica-Bold').fontSize(11).fillColor('#1A2536').text(monthLabel(rowMonth), left, y);
-        doc.font('Helvetica').fontSize(8).fillColor('#5F6F63').text(
-          `${month.n} lançamentos · entradas ${magnitude(month.inCents)} · saídas ${magnitude(month.outCents)} · saldo ${money(month.inCents + month.outCents)}`,
-          left,
-          y + 14,
-        );
-        y += 32;
-        tableHeader();
-      }
-
-      ensure(14);
-      doc.font('Helvetica').fontSize(8).fillColor('#1A2536');
-      doc.text(shortDate(row.posted_at), columns.date, y, { width: 66, lineBreak: false });
-      doc.text(String(row.account).slice(0, 14), columns.account, y, { width: 68, lineBreak: false });
-      doc.text(String(row.merchant || row.description).slice(0, 38), columns.desc, y, { width: 180, lineBreak: false });
-      doc.text(String(row.category).slice(0, 18), columns.category, y, { width: 92, lineBreak: false });
-      doc.text(money(row.amount_cents), columns.value, y, { width: right - columns.value, align: 'right', lineBreak: false });
-      y += 13;
-    }
-
-    ensure(30);
-    y += 10;
-    doc.moveTo(left, y).lineTo(right, y).strokeColor('#CFC6B2').stroke();
-    y += 10;
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#1A2536').text('Total geral', left, y);
-    doc.text(`${money(totalIn + totalOut)}`, columns.value, y, { width: right - columns.value, align: 'right' });
-    y += 18;
-    doc.font('Helvetica').fontSize(8).fillColor('#5F6F63').text(
-      'Gerado pelo Onde foi o meu dinheiro? — nenhum token somado; todo valor veio do SQLite.',
-      left,
-      y,
-      { width: right - left },
-    );
-  });
-}
-
-interface AskPayload {
-  question: string;
-  spec: QuerySpec;
-  sql: string;
-  params: (string | number)[];
-  outcome: ReturnType<typeof executeSpec>;
-  answer: string;
-  ms: number;
-  planner: string;
-  followUp: boolean;
-  guard?: string;
 }
 
 async function answerQuestion(body: Record<string, unknown>): Promise<AskPayload> {
@@ -732,70 +269,6 @@ async function answerQuestion(body: Record<string, unknown>): Promise<AskPayload
   };
 }
 
-function buildProofPdf(payload: AskPayload): Promise<Buffer> {
-  return pdfToBuffer((doc) => {
-    const left = 40;
-    const right = 555;
-    let y = 40;
-
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#5F6F63').text('ONDE FOI O MEU DINHEIRO?', left, y);
-    y += 18;
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Folha de prova', left, y);
-    y += 26;
-    doc.font('Helvetica').fontSize(9).fillColor('#5F6F63').text(
-      `Emitida em ${new Date().toLocaleString('pt-BR')}`,
-      left,
-      y,
-    );
-    y += 22;
-
-    const field = (label: string, value: string, options: { mono?: boolean } = {}) => {
-      doc.font('Helvetica-Bold').fontSize(8).fillColor('#5F6F63').text(label.toUpperCase(), left, y);
-      y += 12;
-      doc.font(options.mono ? 'Courier' : 'Helvetica').fontSize(9).fillColor('#1A2536').text(value, left, y, { width: right - left });
-      y = doc.y + 12;
-    };
-
-    field('Pergunta', payload.question);
-    field('Resposta', payload.answer);
-
-    const direction = payload.spec.filters.direction ?? 'any';
-    const scope = describePeriod(payload.spec.filters.from, payload.spec.filters.to);
-    if (payload.outcome.kind === 'sum') {
-      field('Número apurado', `${brl(payload.outcome.totalCents)} · ${payload.outcome.count} lançamentos · ${direction === 'in' ? 'entradas' : direction === 'out' ? 'saídas' : 'saldo'} · ${scope}`);
-    } else if (payload.outcome.kind === 'count') {
-      field('Número apurado', `${payload.outcome.count} lançamentos · ${scope}`);
-    } else if (payload.outcome.kind === 'average') {
-      field('Número apurado', `${brl(payload.outcome.averageCents)} por lançamento · ${payload.outcome.count} lançamentos · ${scope}`);
-    } else if (payload.outcome.kind === 'list') {
-      const rows = payload.outcome.rows
-        .slice(0, 12)
-        .map((row, index) => `${String(index + 1).padStart(2)}. ${row.postedAt} · ${row.merchant} — ${brl(row.amountCents)}`)
-        .join('\n');
-      field('Lançamentos', `${payload.outcome.rows.length} no recorte · ${scope}\n${rows}`);
-    } else {
-      const rows = payload.outcome.rows.slice(0, 12).map((row, index) => `${String(index + 1).padStart(2)}. ${row.label} — ${brl(row.totalCents)}`).join('\n');
-      field('Número apurado', `${brl(payload.outcome.totalCents)} no total · ${scope}\n${rows}`);
-    }
-
-    field('SQL executado', payload.sql.replace(/\s+/g, ' ').trim(), { mono: true });
-    field('Parâmetros', JSON.stringify(payload.params), { mono: true });
-    field('QuerySpec', JSON.stringify(payload.spec, null, 2), { mono: true });
-    field(
-      'Como foi apurado',
-      `planner: ${payload.planner}\ntempo: ${payload.ms} ms\ntokens somados: 0\nfonte do valor: SQLite${payload.followUp ? '\ncontexto: continuacao da pergunta anterior' : ''}${payload.guard ? `\nfiltro de contraparte aplicado: ${payload.guard}` : ''}`,
-    );
-
-    doc.font('Helvetica').fontSize(8).fillColor('#5F6F63').text(
-      'O modelo não calcula: ele só traduz a pergunta em filtros. A soma acontece no banco.',
-      left,
-      Math.min(y + 8, 780),
-      { width: right - left },
-    );
-  });
-}
-
-
 async function serveStatic(pathname: string, res: ServerResponse): Promise<void> {
   const relative = normalize(decodeURIComponent(pathname)).replace(/^[\\/]+/, '');
   const file = join(DIST, relative);
@@ -849,7 +322,7 @@ const server = createServer(async (req, res) => {
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
-      return sendJson(res, 200, summary(periodFromQuery(url), source && source !== 'all' ? source : undefined, account, includeInternal));
+      return sendJson(res, 200, summary(db, periodFromQuery(url), planner.name, source && source !== 'all' ? source : undefined, account, includeInternal));
     }
 
     if (url.pathname === '/api/compare' && req.method === 'GET') {
@@ -857,7 +330,7 @@ const server = createServer(async (req, res) => {
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
-      return sendJson(res, 200, comparePeriods(period, previous, source && source !== 'all' ? source : undefined, account, includeInternal));
+      return sendJson(res, 200, comparePeriods(db, period, previous, source && source !== 'all' ? source : undefined, account, includeInternal));
     }
 
     if (url.pathname === '/api/budgets' && req.method === 'GET') {
@@ -869,7 +342,7 @@ const server = createServer(async (req, res) => {
         month: period.to.slice(0, 7),
         from: period.from,
         to: period.to,
-        items: budgetsForPeriod(period, source && source !== 'all' ? source : undefined, account, includeInternal),
+        items: budgetsForPeriod(db, period, source && source !== 'all' ? source : undefined, account, includeInternal),
       });
     }
 
@@ -904,7 +377,7 @@ const server = createServer(async (req, res) => {
       const period = periodFromQuery(url);
       return sendJson(res, 200, {
         month: period.to.slice(0, 7),
-        items: transactions(period, limit, source && source !== 'all' ? source : undefined, account, includeInternal),
+        items: transactions(db, period, limit, source && source !== 'all' ? source : undefined, account, includeInternal),
       });
     }
 
@@ -986,7 +459,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, {
         ...result,
         month: importedMonth,
-        summary: summary(monthFromIso(importedMonth), source),
+        summary: summary(db, monthFromIso(importedMonth), planner.name, source),
         sources: countBySource(db),
         transfers,
         accounts: distinctAccounts(db),
@@ -1002,16 +475,16 @@ const server = createServer(async (req, res) => {
         if (countTransactions(db) === 0) {
           importExtrato(db, readFileSync(SAMPLE, 'utf8'), 'principal', 'sample');
         }
-        return sendJson(res, 200, { removed, sources: countBySource(db), summary: summary(monthFromIso(currentMonth())), accounts: distinctAccounts(db) });
+        return sendJson(res, 200, { removed, sources: countBySource(db), summary: summary(db, monthFromIso(currentMonth()), planner.name), accounts: distinctAccounts(db) });
       }
       if (mode === 'sample') {
         db.exec('DELETE FROM transactions');
         const result = importExtrato(db, readFileSync(SAMPLE, 'utf8'), 'principal', 'sample');
-        return sendJson(res, 200, { removed: result.inserted, sources: countBySource(db), summary: summary(monthFromIso(currentMonth())) });
+        return sendJson(res, 200, { removed: result.inserted, sources: countBySource(db), summary: summary(db, monthFromIso(currentMonth()), planner.name) });
       }
       const removed = countTransactions(db);
       db.exec('DELETE FROM transactions');
-      return sendJson(res, 200, { removed, sources: countBySource(db), summary: summary(monthFromIso(currentMonth())) });
+      return sendJson(res, 200, { removed, sources: countBySource(db), summary: summary(db, monthFromIso(currentMonth()), planner.name) });
     }
 
     if (url.pathname === '/api/export/pdf' && req.method === 'GET') {
@@ -1021,7 +494,7 @@ const server = createServer(async (req, res) => {
       // só aplica período quando a tela mandou um recorte: sem isso, o PDF continua cobrindo tudo
       const hasPeriod = Boolean(url.searchParams.get('from') || url.searchParams.get('to') || url.searchParams.get('month'));
       const period = hasPeriod ? periodFromQuery(url) : null;
-      const buffer = await buildStatementPdf({
+      const buffer = await buildStatementPdf(db, {
         source: source && source !== 'all' ? source : undefined,
         account,
         includeInternal,

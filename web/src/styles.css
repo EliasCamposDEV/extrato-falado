@@ -2216,13 +2216,27 @@ code {
 
   .expenses-head,
   .expense {
-    grid-template-columns: 44px minmax(0, 1fr) 96px;
-    gap: 8px;
+    grid-template-columns: 40px minmax(0, 1fr) 62px 68px;
+    gap: 6px;
   }
 
-  .expenses-head span:nth-child(3),
-  .expense-category {
+  .expense-category .category-edit span.code {
     display: none;
+  }
+
+  .expense-category .category-edit {
+    font-size: 9px;
+  }
+
+  .more-button {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 2px 4px;
+    font-size: 10px;
+  }
+
+  .row-menu {
+    max-width: calc(100vw - 24px);
   }
 
   .expense-value {

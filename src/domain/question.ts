@@ -7,16 +7,39 @@ export function sanitizeQuestion(question: string): string {
   return clean.slice(0, MAX_QUESTION_LENGTH);
 }
 
+/** Sem acento e minúsculo: o padrão não depende de "instruções" x "instrucoes". */
+function normalizeForGuard(question: string): string {
+  return question
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 const INJECTION_PATTERNS = [
-  /ignore\b[^.]*\b(instructions|rules|prompt)/i,
-  /system prompt/i,
-  /you are now/i,
-  /jailbreak/i,
-  /reveal\b[^.]*\b(prompt|instructions)/i,
-  /forget (everything|all)/i,
-  /disregard\b[^.]*\b(instructions|rules)/i,
+  // inglês
+  /ignore\b[^.]*\b(instructions|rules|prompt)/,
+  /system prompt/,
+  /you are now/,
+  /jailbreak/,
+  /reveal\b[^.]*\b(prompt|instructions)/,
+  /forget (everything|all)/,
+  /disregard\b[^.]*\b(instructions|rules)/,
+
+  // português: troca de instrução
+  /(ignore|ignorar|ignora|desconsidere|desconsiderar|esqueca|esquecer|abandone)\b[^.]*\b(instrucoes|regras|comandos|orientacoes|prompt)/,
+  /(repita|repita-me|mostre|revele)\b[^.]*\b(instrucoes|regras) (acima|anteriores|do sistema)/,
+  /prompt (do|de) sistema|prompt inicial|prompt original/,
+
+  // português: troca de papel / modo
+  /\b(voce|vc) (agora )?(e|eh) (um|uma)\b/,
+  /\b(aja|comporte-se|finja|finge|pretenda)\b[^.]*\b(como|ser|que (e|eh|es) (um|uma))\b/,
+  /modo (desenvolvedor|dev|irrestrito|sem restricoes|admin|jailbreak)/,
+
+  // segredo: não existe pergunta legítima sobre extrato que peça isso
+  /\b(senha|password|credenciais|credencial|api key|chave de api|chave api)\b/,
 ];
 
 export function looksLikeInjection(question: string): boolean {
-  return INJECTION_PATTERNS.some((pattern) => pattern.test(question));
+  const normalized = normalizeForGuard(question);
+  return INJECTION_PATTERNS.some((pattern) => pattern.test(normalized));
 }

@@ -92,9 +92,12 @@ async function main(): Promise<number> {
     }
 
     case 'demo': {
-      await ensureSeeded(database);
+      // Demo reprodutível: sempre a amostra em memória, nunca o banco local
+      // (depois de importar um extrato real, o banco não tem mais a amostra).
+      const demoDb = openDb(':memory:');
+      await importRows(demoDb, SAMPLE_FILE, 'principal', 'sample');
       for (const question of DEMO_QUESTIONS) {
-        await ask(planner, database, question);
+        await ask(planner, demoDb, question);
       }
       return 0;
     }

@@ -98,6 +98,7 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 | `src/stats.ts` | consultas de resumo, comparação, orçamento e lançamentos (todo valor sai do SQLite) |
 | `src/export-pdf.ts` | super extrato e folha de prova em PDF |
 | `Dockerfile` / `render.yaml` | deploy em container com o SQLite em disco persistente |
+| `vercel.json` / `scripts/build-api.mjs` | demo na Vercel: UI estática + o mesmo handler empacotado como função (`/tmp`) |
 | `web/src/` | React: caderneta, carimbo do período, folha de prova e recibo de importação |
 | `web/src/styles.css` | sistema visual: paleta, tipografia, responsivo e movimento |
 | `test/core.test.ts` | 44 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, contas, fatura, guard, continuação, ponta a ponta) |
@@ -191,6 +192,23 @@ docker run -d --name extrato -p 8787:8787 \
 | `EXTRATO_DB` | caminho do banco (no container, `/data/extrato.db`). Monte o volume nesse diretório ou o banco recomeça da amostra a cada deploy |
 
 No **Render**, o `render.yaml` é um Blueprint: serviço Docker, health check em `/api/health`, disco de 1 GB em `/data` e `APP_PASSWORD` pedida no painel (`sync: false`). Disco persistente exige plano pago (starter); no plano free a demo funciona, mas o banco é recriado a cada deploy. Uma instância só: SQLite não escala horizontalmente, e para um extrato pessoal não precisa.
+
+### Vercel (demo)
+
+A Vercel serve a UI estática (`web/dist`) e a API como uma função Node (`api/index.mjs`, gerada por `npm run build:api` no build). Função serverless não tem disco persistente, então o banco vai para `/tmp`: a demo sempre abre semeada com a amostra, mas **o que você importar vive só naquela instância** e some quando ela recicla. A própria tela avisa (`/api/health` devolve `ephemeral: true`).
+
+```bash
+npx vercel        # preview
+npx vercel --prod # produção
+```
+
+- `vercel.json` define build, `outputDirectory` e o rewrite de `/api/*` para a função.
+- `data/sample-extrato.csv` entra na função via `includeFiles`; o `data/extrato.db` local nunca sobe (`.vercelignore`).
+- A Vercel corta corpos em ~4,5 MB: PDFs acima de ~3 MB são recusados, e a UI lê esse teto do `/api/health`.
+- `PUBLIC_HOSTS` é preenchido sozinho com `VERCEL_URL`; `APP_PASSWORD` continua opcional.
+- Precisa de persistência real? Use o container (Docker/Render) ou troque o SQLite por um banco remoto.
+
+O `render.yaml` continua sendo o caminho para uso pessoal de verdade: lá o extrato importado sobrevive a reinícios.
 
 ## Saída real
 

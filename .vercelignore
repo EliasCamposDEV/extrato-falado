@@ -1,0 +1,9 @@
+# nunca subir o banco local: ele guarda extratos reais importados
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+data/ocr
+.env
+.playwright-cli
+mobile.png

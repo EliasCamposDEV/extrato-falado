@@ -4,6 +4,8 @@ data/*.db-journal
 data/*.db-shm
 data/*.db-wal
 dist/
+# funcao serverless gerada por `npm run build:api` (a Vercel chama no deploy)
+api/
 .env
 .impeccable/review/
 *.log

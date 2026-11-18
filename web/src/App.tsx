@@ -450,7 +450,7 @@ export default function App() {
                 className={`tab ${value === month && !range ? 'is-active' : ''}`}
                 onClick={() => changeMonth(value)}
                 aria-current={value === month && !range ? 'page' : undefined}
-                aria-label={monthLong(value)}
+                aria-label={`${monthLong(value)} ${monthNumber(value)}${monthShort(value)}`}
               >
                 <span>{monthNumber(value)}</span>
                 {monthShort(value)}
@@ -659,7 +659,7 @@ export default function App() {
                 <p className="section-note">orçamento é mensal: escolha um mês para editar o limite.</p>
               ) : (
                 <div className="budget-form">
-                  <select id="budget-category" defaultValue={summary?.categories?.[0]?.label ?? ''}>
+                  <select id="budget-category" aria-label="categoria do orçamento" defaultValue={summary?.categories?.[0]?.label ?? ''}>
                     {(summary?.categories ?? []).map((c) => (
                       <option key={c.label} value={c.label}>{c.label}</option>
                     ))}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Transaction } from '../types.ts';
 import { categoryCode } from '../lib/codes.ts';
 import { countLabel, dayMonth, moneySigned } from '../lib/format.ts';
@@ -24,6 +24,22 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
   const [saving, setSaving] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [explainText, setExplainText] = useState<string>('');
+
+  // fecha o menu ao clicar fora ou pressionar Esc (acessibilidade por teclado)
+  useEffect(() => {
+    if (!menuId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuId(null); };
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && !target.closest('.category-cell')) setMenuId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [menuId]);
   const canLoadMore = !allLoaded && totalCount > items.length;
 
   const handleSave = async (id: string, category: string, applyAll: boolean) => {
@@ -85,6 +101,7 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                 {editingId === item.id && item.id ? (
                   <select
                     autoFocus
+                    aria-label="categoria do lançamento"
                     defaultValue={item.category}
                     disabled={saving}
                     onChange={(e) => {
@@ -118,6 +135,8 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                         className="more-button"
                         onClick={() => toggleMenu(item.id!)}
                         title="mais ações"
+                        aria-label="⋯ mais ações"
+                        aria-haspopup="menu"
                         aria-expanded={menuId === item.id}
                       >
                         ⋯

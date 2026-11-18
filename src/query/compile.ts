@@ -99,6 +99,10 @@ function buildWhere(spec: QuerySpec): { sql: string; params: (string | number)[]
     clauses.push('account = ?');
     params.push(f.account);
   }
+  if (f.invoice) {
+    clauses.push('invoice_month = ?');
+    params.push(f.invoice);
+  }
   if (!f.includeInternal) {
     clauses.push('is_internal_transfer = 0');
   }

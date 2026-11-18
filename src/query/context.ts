@@ -2,7 +2,7 @@ import { stripAccents } from '../ingest/normalize.ts';
 import { shiftMonth } from '../domain/dates.ts';
 import type { QuerySpec } from './spec.ts';
 
-const MERGED_FILTERS = ['from', 'to', 'categories', 'merchants', 'text', 'direction', 'minCents', 'maxCents'] as const;
+const MERGED_FILTERS = ['from', 'to', 'categories', 'merchants', 'text', 'direction', 'minCents', 'maxCents', 'invoice'] as const;
 
 /** "e em setembro?" / "então e no mercado?" — pergunta que depende da anterior. */
 export function isFollowUp(question: string): boolean {
@@ -42,6 +42,12 @@ export function mergeFollowUp(previous: QuerySpec, next: QuerySpec, question = '
   if (shifted) {
     filters.from = shifted.from;
     filters.to = shifted.to;
+  }
+  // a fatura tem recorte próprio: herdar o período da consulta anterior
+  // somaria dois recortes que não se cruzam
+  if (next.filters.invoice) {
+    delete filters.from;
+    delete filters.to;
   }
 
   // "e em setembro?" planeja como sum; a intencao original (ex.: breakdown) continua

@@ -6,6 +6,8 @@
  * e o SQLite. Todo o resto do sistema depende deste tipo.
  */
 
+import { normalizeInvoiceMonth } from '../domain/invoice.ts';
+
 export type Intent = 'sum' | 'count' | 'average' | 'breakdown' | 'list';
 export type Direction = 'in' | 'out' | 'any';
 export type GroupBy = 'category' | 'merchant' | 'month' | 'day';
@@ -21,6 +23,8 @@ export interface Filters {
   maxCents?: number;
   source?: 'sample' | 'imported';
   account?: string;
+  /** mes da fatura (aaaa-mm): atravessa o mes da compra */
+  invoice?: string;
   includeInternal?: boolean;
 }
 
@@ -94,6 +98,12 @@ export function parseSpec(input: unknown): QuerySpec {
     filters.source = source;
   }
   if (f.account !== undefined) filters.account = asString(f.account, 'filters.account');
+  if (f.invoice !== undefined) {
+    // aceita "2026-10", "10/2026" e "outubro de 2026": a mesma forma que a tela usa
+    const invoice = normalizeInvoiceMonth(asString(f.invoice, 'filters.invoice'));
+    if (!invoice) throw new SpecError('"filters.invoice" deve ser o mes da fatura (aaaa-mm), ex: "2026-10"');
+    filters.invoice = invoice;
+  }
   if (f.includeInternal !== undefined) {
     if (typeof f.includeInternal !== 'boolean') throw new SpecError('"filters.includeInternal" deve ser booleano');
     filters.includeInternal = f.includeInternal;
@@ -167,6 +177,7 @@ export function canonicalSpec(spec: QuerySpec): string {
       maxCents: f.maxCents ?? null,
        source: f.source ?? null,
        account: f.account ?? null,
+       invoice: f.invoice ?? null,
        includeInternal: f.includeInternal ?? false,
     },
     groupBy: spec.groupBy ?? null,

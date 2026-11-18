@@ -79,6 +79,15 @@ export function planHeuristic({ question, today }: PlanInput): QuerySpec {
 
   const period = extractPeriod(q, today);
 
+  // "fatura de outubro" não é "outubro de compras": a compra pode ser de
+  // agosto e a fatura vencer em outubro. Então sai o recorte de posted_at e
+  // entra o filtro de fatura (invoice_month).
+  let invoice: string | null = null;
+  if (/\bfatura\b|\binvoice\b/.test(q)) {
+    const invoicePeriod = period ?? monthBounds(Number(today.slice(0, 4)), Number(today.slice(5, 7)));
+    invoice = invoicePeriod.from.slice(0, 7);
+  }
+
   const brands = BRANDS.filter((brand) => q.includes(brand));
 
   const categories = new Set<string>();
@@ -89,10 +98,11 @@ export function planHeuristic({ question, today }: PlanInput): QuerySpec {
   }
 
   const filters: QuerySpec['filters'] = {};
-  if (period) {
+  if (period && !invoice) {
     filters.from = period.from;
     filters.to = period.to;
   }
+  if (invoice) filters.invoice = invoice;
   if (brands.length > 0) filters.merchants = brands;
   else if (categories.size > 0) filters.categories = [...categories];
 
@@ -110,6 +120,8 @@ export function planHeuristic({ question, today }: PlanInput): QuerySpec {
   ) {
     filters.direction = 'out';
   }
+  // "qual foi a fatura de outubro" é o total das compras da fatura
+  if (invoice && !filters.direction) filters.direction = 'out';
 
   let intent: QuerySpec['intent'] = 'sum';
   if (/\bquantas vezes\b|\bquantos lancamentos\b|\bquantas compras\b/.test(q)) intent = 'count';

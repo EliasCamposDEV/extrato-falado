@@ -1,0 +1,39 @@
+# Blueprint do Render: o app roda no Dockerfile e o SQLite fica no disco.
+#
+# Disco persistente no Render exige plano pago (starter em diante). Sem disco,
+# cada deploy recomeça da amostra — bom para demo, ruim para o seu extrato.
+services:
+  - type: web
+    name: onde-foi-meu-dinheiro
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # o proxy do Render entrega o Host/Origin do domínio público
+      - key: PUBLIC_HOSTS
+        value: onde-foi-meu-dinheiro.onrender.com
+      - key: EXTRATO_DB
+        value: /data/extrato.db
+      # planner offline: determinístico e sem chave de API. Para ligar a LLM,
+      # troque para "openai" e preencha OPENAI_API_KEY no painel.
+      - key: PLANNER
+        value: fake
+      # senha do deploy (HTTP Basic). Preencha no painel: sem ela, qualquer
+      # visitante lê o extrato. O usuário padrão é "extrato".
+      - key: APP_PASSWORD
+        sync: false
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # - key: OPENAI_BASE_URL
+      #   value: https://api.groq.com/openai/v1
+      # - key: OPENAI_MODEL
+      #   value: openai/gpt-oss-120b
+    disk:
+      name: extrato
+      mountPath: /data
+      sizeGB: 1

@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, upsertBudget, deleteBudget, markInternalTransfer, markRefund, type Db } from './db.ts';
@@ -34,8 +34,11 @@ import {
 import { buildProofPdf, buildStatementPdf, type AskPayload } from './export-pdf.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+// Na Vercel o unico diretorio gravavel e /tmp (e ele nao sobrevive a um cold
+// start): o banco vira uma demo efemera, semeada com o extrato de exemplo.
+const EPHEMERAL = process.env.VERCEL === '1';
 // EXTRATO_DB aponta o banco para outro arquivo (testes de API usam um temporario)
-const DB_PATH = process.env.EXTRATO_DB ?? join(ROOT, 'data', 'extrato.db');
+const DB_PATH = process.env.EXTRATO_DB ?? (EPHEMERAL ? '/tmp/extrato.db' : join(ROOT, 'data', 'extrato.db'));
 const DIST = join(ROOT, 'web', 'dist');
 const SAMPLE = join(ROOT, 'data', 'sample-extrato.csv');
 // PORT=0 ou vazio cai no padrao: o vite faz proxy de /api para 8787, entao porta aleatoria quebraria a UI
@@ -103,9 +106,18 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
  * Domínios públicos aceitos além do loopback (deploy atrás do proxy: o Host
  * chega como `app.onrender.com`). Vazio = só loopback, como no uso local.
  */
+// A Vercel expoe a URL do deploy em variaveis de ambiente: sem elas o Host do
+// proprio dominio seria recusado pelo guard de DNS rebinding.
+const PLATFORM_HOSTS = [
+  process.env.VERCEL_URL,
+  process.env.VERCEL_BRANCH_URL,
+  process.env.VERCEL_PROJECT_PRODUCTION_URL,
+]
+  .filter((host): host is string => Boolean(host))
+  .map((host) => host.toLowerCase());
+
 const PUBLIC_HOSTS = new Set(
-  (process.env.PUBLIC_HOSTS ?? '')
-    .split(',')
+  [...PLATFORM_HOSTS, ...(process.env.PUBLIC_HOSTS ?? '').split(',')]
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean),
 );
@@ -124,8 +136,14 @@ const planner: Planner = buildPlanner();
 const db: Db = openDb(DB_PATH);
 
 if (countTransactions(db) === 0) {
-  const result = importExtrato(db, readFileSync(SAMPLE, 'utf8'), 'principal', 'sample');
-  console.log(`seed: ${result.inserted} lancamentos de exemplo importados`);
+  try {
+    const result = importExtrato(db, readFileSync(SAMPLE, 'utf8'), 'principal', 'sample');
+    console.log(`seed: ${result.inserted} lancamentos de exemplo importados`);
+  } catch (error) {
+    // a amostra vai junto da funcao (ver includeFiles no vercel.json); se o
+    // arquivo faltar, a demo abre vazia em vez de derrubar o handler inteiro
+    console.warn(`seed indisponivel em ${SAMPLE}:`, error instanceof Error ? error.message : error);
+  }
 }
 
 const MIME: Record<string, string> = {
@@ -354,7 +372,12 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
   res.end('UI nao construida. Rode `npm run build` ou use `npm run dev`.');
 }
 
-const server = createServer(async (req, res) => {
+/**
+ * Handler compartilhado entre o servidor local (`npm start`) e a funcao
+ * serverless da Vercel (`api/index.mjs`). Nao sobe porta sozinho: quem decide
+ * e o bloco de main no fim do arquivo.
+ */
+export async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
 
   try {
@@ -380,8 +403,10 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/health') {
-      if (AUTH_ENABLED) return sendJson(res, 200, { ok: true });
-      return sendJson(res, 200, { ok: true, planner: planner.name, transactions: countTransactions(db), sources: countBySource(db), accounts: distinctAccounts(db) });
+      // a Vercel corta o corpo em ~4,5 MB: o PDF em base64 nao pode passar de ~3 MB
+      const limits = { maxUploadBytes: EPHEMERAL ? 3 * 1024 * 1024 : null };
+      if (AUTH_ENABLED) return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits });
+      return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits, planner: planner.name, transactions: countTransactions(db), sources: countBySource(db), accounts: distinctAccounts(db) });
     }
 
     if (url.pathname === '/api/summary' && req.method === 'GET') {
@@ -645,11 +670,18 @@ const server = createServer(async (req, res) => {
     const message = err instanceof Error ? err.message : 'erro desconhecido';
     return sendJson(res, 400, { error: message });
   }
-});
+}
 
-// em container o proxy precisa alcançar: HOST=0.0.0.0. Local continua loopback.
-const HOST = process.env.HOST || '127.0.0.1';
-server.listen(PORT, HOST, () => {
-  console.log(`api   http://${HOST}:${PORT}`);
-  console.log(`planner: ${planner.name}`);
-});
+// `node src/server.ts` sobe o servidor; importado por uma funcao serverless,
+// apenas exporta o handler (nada de porta aberta).
+const isMain =
+  !EPHEMERAL && process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  // em container o proxy precisa alcançar: HOST=0.0.0.0. Local continua loopback.
+  const HOST = process.env.HOST || '127.0.0.1';
+  createServer(handler).listen(PORT, HOST, () => {
+    console.log(`api   http://${HOST}:${PORT}`);
+    console.log(`planner: ${planner.name}${EPHEMERAL ? ' · demo efemera (/tmp)' : ''}`);
+  });
+}

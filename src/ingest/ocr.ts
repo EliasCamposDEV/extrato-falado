@@ -22,7 +22,9 @@ export async function ocrImages(images: Uint8Array[]): Promise<string> {
     .slice(0, MAX_OCR_IMAGES);
   if (usable.length === 0) return '';
 
-  const cachePath = join(process.cwd(), 'data', 'ocr');
+  // na Vercel so /tmp e gravavel; localmente o cache fica junto do projeto
+  const base = process.env.VERCEL === '1' ? '/tmp' : process.cwd();
+  const cachePath = process.env.OCR_CACHE_DIR ?? join(base, 'data', 'ocr');
   mkdirSync(cachePath, { recursive: true });
 
   const worker = await createWorker('por', 1, { cachePath });

@@ -1,11 +1,11 @@
-import { readFileSync } from 'node:fs';
 import { matchRule, matchRuleDetail } from './rules.ts';
 import { nearestLabel, type Example } from './tfidf.ts';
 import { stripAccents } from '../ingest/normalize.ts';
+import labels from '../../data/labels.json' with { type: 'json' };
 
-const EXAMPLES: Example[] = JSON.parse(
-  readFileSync(new URL('../../data/labels.json', import.meta.url), 'utf8'),
-) as Example[];
+// import de JSON (e nao readFileSync + import.meta.url): o bundle da Vercel
+// inlina este modulo e o caminho relativo ao arquivo original deixaria de valer
+const EXAMPLES: Example[] = labels;
 
 export interface Classification {
   category: string;

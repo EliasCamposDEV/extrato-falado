@@ -1,17 +1,21 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, upsertBudget, deleteBudget, type Db } from './db.ts';
+import { openDb, countTransactions, countBySource, deleteImported, distinctAccounts, detectInternalTransfers, applyOverridesToTransactions, setOverrideCategory, upsertBudget, deleteBudget, markInternalTransfer, markRefund, type Db } from './db.ts';
 import { importExtrato, importPdf } from './ingest/import.ts';
+import { guessAccount } from './ingest/account.ts';
 import { parseDateToISO } from './ingest/normalize.ts';
+import { explainClassification } from './categorize/classify.ts';
 import { compileSpec } from './query/compile.ts';
 import { executeSpec } from './query/execute.ts';
 import { renderAnswer } from './query/render.ts';
 import { monthFromIso, shiftMonth } from './domain/dates.ts';
 import { MAX_QUESTION_LENGTH, looksLikeInjection, sanitizeQuestion } from './domain/question.ts';
+import { normalizeInvoiceMonth } from './domain/invoice.ts';
 import { parseSpec, type QuerySpec } from './query/spec.ts';
 import { applyEntityGuard } from './query/guard.ts';
 import { isFollowUp, mergeFollowUp } from './query/context.ts';
@@ -21,6 +25,7 @@ import { loadEnvFile } from './env.ts';
 import {
   budgetsForPeriod,
   comparePeriods,
+  invoices,
   previousPeriod,
   summary,
   transactions,
@@ -40,6 +45,32 @@ const PORT = Number(process.env.PORT) || 8787;
 const MAX_IMPORT_BODY = 12 * 1024 * 1024;
 const MAX_JSON_BODY = 256 * 1024;
 const MAX_ACCOUNT_LENGTH = 40;
+
+/**
+ * Senha opcional para deploy público. Localmente fica desligada (a API escuta
+ * só em loopback); no container ela evita que qualquer visitante leia o extrato.
+ * O navegador mostra o prompt nativo do HTTP Basic.
+ */
+const AUTH_USER = process.env.APP_USER?.trim() || 'extrato';
+const AUTH_PASSWORD = process.env.APP_PASSWORD ?? '';
+const AUTH_ENABLED = AUTH_PASSWORD.length > 0;
+
+function safeEqual(a: string, b: string): boolean {
+  // hash antes de comparar: timingSafeEqual exige o mesmo tamanho
+  const left = createHash('sha256').update(a).digest();
+  const right = createHash('sha256').update(b).digest();
+  return timingSafeEqual(left, right);
+}
+
+function authorized(req: IncomingMessage): boolean {
+  if (!AUTH_ENABLED) return true;
+  const header = req.headers.authorization ?? '';
+  if (!header.startsWith('Basic ')) return false;
+  const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
+  const colon = decoded.indexOf(':');
+  if (colon < 0) return false;
+  return safeEqual(decoded.slice(0, colon), AUTH_USER) && safeEqual(decoded.slice(colon + 1), AUTH_PASSWORD);
+}
 const SECURITY_HEADERS = {
   'content-security-policy':
     "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self'",
@@ -68,12 +99,23 @@ function hostnameOf(value: string): string | null {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
+/**
+ * Domínios públicos aceitos além do loopback (deploy atrás do proxy: o Host
+ * chega como `app.onrender.com`). Vazio = só loopback, como no uso local.
+ */
+const PUBLIC_HOSTS = new Set(
+  (process.env.PUBLIC_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
+);
+
 /** Host/Origin de loopback: `localhost:5173`, `127.0.0.1:8787`, `[::1]:1`. */
-function isLoopback(value: string): boolean {
+function allowedHost(value: string): boolean {
   const hostname = hostnameOf(value);
   if (!hostname) return false;
   const bare = hostname.replace(/^\[|\]$/g, '');
-  return LOOPBACK_HOSTS.has(bare) || bare.endsWith('.localhost');
+  return LOOPBACK_HOSTS.has(bare) || bare.endsWith('.localhost') || PUBLIC_HOSTS.has(bare);
 }
 
 loadEnvFile(join(ROOT, '.env'));
@@ -178,8 +220,16 @@ function monthOrPeriodFromQuery(url: URL): Period {
   return strictPeriod(url);
 }
 
-function compareScope(url: URL): { period: Period; previous: Period } {
-  if (url.searchParams.get('from') || url.searchParams.get('to')) {
+/** `invoice=2026-10` (ou `outubro de 2026`) → "2026-10"; inválido é erro 400. */
+function invoiceMonthParam(url: URL): string | undefined {
+  const raw = url.searchParams.get('invoice');
+  if (!raw) return undefined;
+  const month = normalizeInvoiceMonth(raw);
+  if (!month) throw new HttpError(400, 'fatura invalida (use YYYY-MM)');
+  return month;
+}
+
+function compareScope(url: URL): { period: Period; previous: Period } {  if (url.searchParams.get('from') || url.searchParams.get('to')) {
     const period = strictPeriod(url);
     return { period, previous: previousPeriod(period) };
   }
@@ -235,6 +285,11 @@ async function answerQuestion(body: Record<string, unknown>): Promise<AskPayload
   const source = typeof body.source === 'string' && body.source !== 'all' ? body.source : undefined;
   if (source) spec.filters.source = source as 'sample' | 'imported';
   if (typeof body.account === 'string' && body.account) spec.filters.account = body.account;
+  if (typeof body.invoice === 'string' && body.invoice) {
+    const invoice = normalizeInvoiceMonth(body.invoice);
+    if (!invoice) throw new Error('fatura invalida: use o mes no formato aaaa-mm');
+    spec.filters.invoice = invoice;
+  }
   if (typeof body.includeInternal === 'boolean') spec.filters.includeInternal = body.includeInternal;
 
   // período livre escolhido na tela manda no recorte da pergunta (a spec fixada, da folha de prova, não é tocada)
@@ -304,17 +359,28 @@ const server = createServer(async (req, res) => {
 
   try {
     // DNS rebinding: um site externo que resolve para 127.0.0.1 chega aqui com
-    // o Host do dominio dele. A API so atende quem se apresenta como loopback.
-    if (req.headers.host && !isLoopback(req.headers.host)) {
+    // o Host do dominio dele. A API so atende loopback (ou o dominio declarado
+    // em PUBLIC_HOSTS, quando roda atras do proxy do deploy).
+    if (req.headers.host && !allowedHost(req.headers.host)) {
       throw new HttpError(403, 'host nao permitido: a API so atende loopback');
     }
-    if (req.method === 'POST' && req.headers.origin !== undefined && !isLoopback(req.headers.origin)) {
+    if (req.method === 'POST' && req.headers.origin !== undefined && !allowedHost(req.headers.origin)) {
       throw new HttpError(403, 'origem nao permitida');
     }
 
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
+    // health fica aberto para o health check da plataforma (e sem detalhes
+    // quando há senha); todo o resto exige a credencial
+    if (!authorized(req) && url.pathname !== '/api/health') {
+      res.setHeader('www-authenticate', 'Basic realm="extrato", charset="UTF-8"');
+      res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('autenticacao necessaria');
+      return;
+    }
+
     if (url.pathname === '/api/health') {
+      if (AUTH_ENABLED) return sendJson(res, 200, { ok: true });
       return sendJson(res, 200, { ok: true, planner: planner.name, transactions: countTransactions(db), sources: countBySource(db), accounts: distinctAccounts(db) });
     }
 
@@ -322,7 +388,15 @@ const server = createServer(async (req, res) => {
       const source = url.searchParams.get('source') ?? undefined;
       const account = url.searchParams.get('account') ?? undefined;
       const includeInternal = url.searchParams.get('includeInternal') === '1';
-      return sendJson(res, 200, summary(db, periodFromQuery(url), planner.name, source && source !== 'all' ? source : undefined, account, includeInternal));
+      return sendJson(res, 200, summary(db, periodFromQuery(url), planner.name, source && source !== 'all' ? source : undefined, account, includeInternal, invoiceMonthParam(url)));
+    }
+
+    if (url.pathname === '/api/invoices' && req.method === 'GET') {
+      const source = url.searchParams.get('source') ?? undefined;
+      const account = url.searchParams.get('account') ?? undefined;
+      return sendJson(res, 200, {
+        items: invoices(db, source && source !== 'all' ? source : undefined, account ?? undefined),
+      });
     }
 
     if (url.pathname === '/api/compare' && req.method === 'GET') {
@@ -377,17 +451,48 @@ const server = createServer(async (req, res) => {
       const period = periodFromQuery(url);
       return sendJson(res, 200, {
         month: period.to.slice(0, 7),
-        items: transactions(db, period, limit, source && source !== 'all' ? source : undefined, account, includeInternal),
+        items: transactions(db, period, limit, source && source !== 'all' ? source : undefined, account, includeInternal, invoiceMonthParam(url)),
       });
     }
 
     const recatMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
+    const explainMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)\/explain$/);
+    if (explainMatch && req.method === 'GET') {
+      const id = decodeURIComponent(explainMatch[1] ?? '');
+      if (!id) throw new HttpError(400, 'id obrigatorio');
+      const row = db.prepare('SELECT description, merchant, category, category_source FROM transactions WHERE id = ?').get(id) as
+        | { description: string; merchant: string; category: string; category_source: string }
+        | undefined;
+      if (!row) throw new HttpError(404, 'lancamento nao encontrado');
+      const explanation = explainClassification(row.description, row.merchant);
+      const reason = row.category_source === 'manual'
+        ? `correção manual (categoria fixada em "${row.category}")`
+        : explanation.reason;
+      return sendJson(res, 200, {
+        id,
+        category: row.category,
+        source: row.category_source,
+        reason,
+      });
+    }
     if (recatMatch && req.method === 'PATCH') {
       const id = decodeURIComponent(recatMatch[1] ?? '');
       if (!id) throw new HttpError(400, 'id obrigatorio');
       const body = await readJson(req);
       const category = typeof body.category === 'string' ? body.category : '';
       const applyAll = body.applyAll === true;
+      const internalTransfer = typeof body.internalTransfer === 'boolean' ? body.internalTransfer : null;
+      const refund = typeof body.refund === 'boolean' ? body.refund : null;
+      if (internalTransfer !== null) {
+        const ok = markInternalTransfer(db, id, internalTransfer);
+        if (!ok) throw new HttpError(404, 'lancamento nao encontrado');
+        return sendJson(res, 200, { ok: true, id, internalTransfer });
+      }
+      if (refund !== null) {
+        const ok = markRefund(db, id, refund);
+        if (!ok) throw new HttpError(404, 'lancamento nao encontrado');
+        return sendJson(res, 200, { ok: true, id, refund });
+      }
       if (!category) throw new HttpError(400, 'categoria obrigatoria');
       if (category.length > 60) throw new HttpError(400, 'categoria muito longa');
       const row = db.prepare('SELECT merchant FROM transactions WHERE id = ?').get(id) as { merchant: string } | undefined;
@@ -430,23 +535,30 @@ const server = createServer(async (req, res) => {
       const base64 = typeof body.base64 === 'string' ? body.base64 : '';
       if (!content && !base64) throw new Error('envie {"filename": "...", "content": "<texto do arquivo>"} ou "base64" para PDF');
       const filename = typeof body.filename === 'string' ? body.filename.slice(0, 120) : '';
-      let account = typeof body.account === 'string' && body.account.trim() ? body.account.trim() : 'principal';
-      if (account.length > MAX_ACCOUNT_LENGTH) {
+      const explicit = typeof body.account === 'string' ? body.account.trim() : '';
+      if (explicit.length > MAX_ACCOUNT_LENGTH) {
         throw new HttpError(400, `nome da conta longo demais (max ${MAX_ACCOUNT_LENGTH} caracteres)`);
       }
+      // ordem: escolha da pessoa > assinatura do conteúdo/nome > 'principal'.
+      // Sem isso, CSV de bancos diferentes virava tudo 'principal' e a
+      // transferência interna (que exige contas diferentes) nunca era achada.
+      const guess = base64 ? null : guessAccount(filename, content);
+      let account = explicit || guess?.account || 'principal';
       account = account.replace(/[\u0000-\u001f\u007f]/g, '');
       if (!account) account = 'principal';
-      if (account === 'principal' && filename) {
-        const lower = filename.toLowerCase();
-        if (lower.startsWith('nu_') || lower.includes('nubank')) account = 'nubank';
-        else if (lower.includes('itau') || lower.includes('itaú')) account = 'itau';
-        else if (lower.includes('inter')) account = 'inter';
-        else if (lower.includes('bradesco')) account = 'bradesco';
-        else if (lower.includes('santander')) account = 'santander';
-        else if (lower.includes('caixa')) account = 'caixa';
-        // arquivos sem banco reconhecido caem em 'principal' para nao fragmentar a conta
+
+      // fatura de cartão: mês explícito ou detecção pelo texto do próprio arquivo.
+      // 'kind' existe para forçar quando o arquivo não se anuncia.
+      const kind = body.kind === 'card' ? 'card' : body.kind === 'account' ? 'account' : undefined;
+      const invoiceMonth = typeof body.invoiceMonth === 'string' && body.invoiceMonth.trim()
+        ? normalizeInvoiceMonth(body.invoiceMonth)
+        : null;
+      if (body.invoiceMonth && !invoiceMonth) {
+        throw new HttpError(400, 'mês da fatura inválido (use YYYY-MM ou MM/AAAA)');
       }
-      const result = base64 ? await importPdf(db, Buffer.from(base64, 'base64'), account) : importExtrato(db, content, account);
+      const result = base64
+        ? await importPdf(db, Buffer.from(base64, 'base64'), account, 'imported', { kind, invoiceMonth })
+        : importExtrato(db, content, account, 'imported', { kind, invoiceMonth });
       // a partir de um arquivo reconhecido, deixa de usar dados ficticios. CSV
       // vazio ou binario aleatorio falham antes daqui e nao apagam a amostra.
       if (result.read > 0 || result.reportedBalanceCents !== null) {
@@ -535,8 +647,9 @@ const server = createServer(async (req, res) => {
   }
 });
 
-// escuta só em loopback: a API não tem autenticação e não deve ficar visível na rede local
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`api   http://127.0.0.1:${PORT}`);
+// em container o proxy precisa alcançar: HOST=0.0.0.0. Local continua loopback.
+const HOST = process.env.HOST || '127.0.0.1';
+server.listen(PORT, HOST, () => {
+  console.log(`api   http://${HOST}:${PORT}`);
   console.log(`planner: ${planner.name}`);
 });

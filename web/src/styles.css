@@ -340,6 +340,30 @@ code {
   letter-spacing: 0.08em;
   padding: 3px 6px;
 }
+.source-control input[type='text'] {
+  width: 92px;
+  border: 1px solid var(--rule);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+}
+.source-control input[type='text']::placeholder {
+  color: var(--sage-deep);
+  opacity: 0.65;
+  letter-spacing: 0.04em;
+}
+.source-control input[type='month'] {
+  border: 1px solid var(--rule);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+}
 .source-control .source-clear {
   border: 1px solid var(--stamp);
   background: transparent;
@@ -1353,6 +1377,26 @@ code {
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
+}
+
+.expense-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+  font-size: 11px;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sage-deep);
 }
 
 .expense-value.is-in {

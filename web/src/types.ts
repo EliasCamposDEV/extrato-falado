@@ -13,6 +13,7 @@ export interface Filters {
   maxCents?: number;
   source?: 'sample' | 'imported';
   account?: string;
+  invoice?: string;
   includeInternal?: boolean;
 }
 
@@ -101,6 +102,7 @@ export interface MonthSummary {
   source?: string;
   sources?: { sample: number; imported: number };
   accounts?: string[];
+  invoiceMonths?: string[];
 }
 
 export interface Transaction {
@@ -110,6 +112,8 @@ export interface Transaction {
   merchant: string;
   category: string;
   amountCents: number;
+  isInternalTransfer?: boolean;
+  isRefund?: boolean;
 }
 
 export interface ImportResult {
@@ -117,6 +121,7 @@ export interface ImportResult {
   inserted: number;
   duplicates: number;
   format: 'csv' | 'ofx' | 'pdf';
+  account?: string;
   via?: 'texto' | 'ocr';
   ocrCorrections?: number;
   month: string;
@@ -128,4 +133,6 @@ export interface ImportResult {
   balanceOk?: boolean | null;
   balanceMessage?: string;
   crossAccountDuplicates?: number;
+  invoiceMonth?: string | null;
+  installments?: number;
 }

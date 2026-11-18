@@ -14,11 +14,16 @@ interface TransactionsProps {
   notice?: string | null;
   onLoadAll: () => void;
   onRecategorize: (id: string, category: string, applyAll: boolean) => Promise<void>;
+  onToggleInternalTransfer?: (id: string, value: boolean) => Promise<void>;
+  onToggleRefund?: (id: string, value: boolean) => Promise<void>;
+  onExplain?: (id: string) => Promise<string | null>;
 }
 
-export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize }: TransactionsProps) {
+export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize, onToggleInternalTransfer, onToggleRefund, onExplain }: TransactionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [explainId, setExplainId] = useState<string | null>(null);
+  const [explainText, setExplainText] = useState<string>('');
   const canLoadMore = !allLoaded && totalCount > items.length;
 
   const handleSave = async (id: string, category: string, applyAll: boolean) => {
@@ -28,6 +33,18 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
       setEditingId(null);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExplain = async (id: string) => {
+    if (explainId === id) { setExplainId(null); return; }
+    setExplainId(id);
+    setExplainText('carregando…');
+    try {
+      const reason = onExplain ? await onExplain(id) : null;
+      setExplainText(reason ?? 'sem explicação');
+    } catch {
+      setExplainText('não foi possível explicar');
     }
   };
 
@@ -57,6 +74,8 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
               <span className="expense-label">
                 {item.merchant}
                 <small>{item.description}</small>
+                {item.isInternalTransfer ? <small className="tag">transferência interna</small> : null}
+                {item.isRefund ? <small className="tag">estorno</small> : null}
               </span>
               <span className="expense-category">
                 {editingId === item.id && item.id ? (
@@ -89,6 +108,34 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                     <span className="code">{categoryCode(item.category)}</span> {item.category}
                   </button>
                 )}
+              </span>
+              <span className="expense-actions">
+                {item.id && onExplain ? (
+                  <button type="button" className="text-button" onClick={() => void handleExplain(item.id!)} title="por que essa categoria?">
+                    ?
+                  </button>
+                ) : null}
+                {item.id && onToggleInternalTransfer ? (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => void onToggleInternalTransfer(item.id!, !item.isInternalTransfer)}
+                    title="marcar como transferência interna"
+                  >
+                    ↔
+                  </button>
+                ) : null}
+                {item.id && onToggleRefund ? (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => void onToggleRefund(item.id!, !item.isRefund)}
+                    title="marcar como estorno"
+                  >
+                    ↩
+                  </button>
+                ) : null}
+                {explainId === item.id ? <span className="section-note">{explainText}</span> : null}
               </span>
               <span className={`expense-value ${item.amountCents > 0 ? 'is-in' : ''}`}>
                 {moneySigned(item.amountCents)}

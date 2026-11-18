@@ -14,7 +14,12 @@ CREATE TABLE IF NOT EXISTS transactions (
   category        TEXT NOT NULL,
   category_source TEXT NOT NULL,
   source          TEXT NOT NULL DEFAULT 'sample',
-  is_internal_transfer INTEGER NOT NULL DEFAULT 0
+  is_internal_transfer INTEGER NOT NULL DEFAULT 0,
+  invoice_month   TEXT,
+  installment_no  INTEGER,
+  installment_total INTEGER,
+  is_refund       INTEGER NOT NULL DEFAULT 0,
+  transfer_manual INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS account_balances (
   account       TEXT PRIMARY KEY,
@@ -35,6 +40,14 @@ export interface TransactionRow {
   categorySource: 'rule' | 'model' | 'manual';
   source?: 'sample' | 'imported';
   isInternalTransfer?: boolean;
+  /** mes da fatura (aaaa-mm) quando o lancamento veio do cartao */
+  invoiceMonth?: string | null;
+  installmentNo?: number | null;
+  installmentTotal?: number | null;
+  /** estorno: credito que cancela um debito, nao conta como receita */
+  isRefund?: boolean;
+  /** marcacao manual de transferencia: +1 forca transferencia, -1 forca nao */
+  transferManual?: number;
 }
 
 export function openDb(file = ':memory:'): Db {
@@ -52,11 +65,28 @@ export function openDb(file = ':memory:'): Db {
   if (!names.has('is_internal_transfer')) {
     db.exec('ALTER TABLE transactions ADD COLUMN is_internal_transfer INTEGER NOT NULL DEFAULT 0');
   }
+  // fatura de cartao: o mes da fatura atravessa o mes da compra
+  if (!names.has('invoice_month')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN invoice_month TEXT');
+  }
+  if (!names.has('installment_no')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN installment_no INTEGER');
+  }
+  if (!names.has('installment_total')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN installment_total INTEGER');
+  }
+  if (!names.has('is_refund')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN is_refund INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!names.has('transfer_manual')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN transfer_manual INTEGER NOT NULL DEFAULT 0');
+  }
   // indices (criados depois da migracao para nao falhar em bases antigas)
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions (posted_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions (category)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions (source)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_tx_merchant ON transactions (merchant)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tx_invoice ON transactions (invoice_month)');
   // o id ja e derivado de (conta, data, valor, estabelecimento). Um indice unico nessa
   // mesma tupla apagava compras legitimamente repetidas (duas passagens iguais no mesmo
   // dia); quem garante o dedupe do reimport e o id + o fitid.
@@ -74,8 +104,8 @@ export function openDb(file = ':memory:'): Db {
 export function insertTransactions(db: Db, rows: TransactionRow[]): { inserted: number; duplicates: number } {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO transactions
-      (id, fitid, account, posted_at, amount_cents, description, merchant, category, category_source, source, is_internal_transfer)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, fitid, account, posted_at, amount_cents, description, merchant, category, category_source, source, is_internal_transfer, invoice_month, installment_no, installment_total, is_refund, transfer_manual)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   let inserted = 0;
   db.exec('BEGIN');
@@ -84,6 +114,8 @@ export function insertTransactions(db: Db, rows: TransactionRow[]): { inserted: 
       const res = stmt.run(
         r.id, r.fitid ?? null, r.account, r.postedAt, r.amountCents,
         r.description, r.merchant, r.category, r.categorySource, r.source ?? 'sample', r.isInternalTransfer ? 1 : 0,
+        r.invoiceMonth ?? null, r.installmentNo ?? null, r.installmentTotal ?? null,
+        r.isRefund ? 1 : 0, r.transferManual ?? 0,
       );
       inserted += Number(res.changes);
     }
@@ -144,11 +176,11 @@ export function distinctAccounts(db: Db): string[] {
 
 /** Marca pares de lancamentos que parecem transferencia entre contas proprias. */
 export function detectInternalTransfers(db: Db): number {
-  // reset
-  db.exec('UPDATE transactions SET is_internal_transfer = 0');
+  // reset only automatic ones; manual marks survive re-detection
+  db.exec('UPDATE transactions SET is_internal_transfer = 0 WHERE transfer_manual = 0');
   const rows = db
-    .prepare('SELECT id, account, posted_at, amount_cents, merchant FROM transactions')
-    .all() as { id: string; account: string; posted_at: string; amount_cents: number; merchant: string }[];
+    .prepare('SELECT id, account, posted_at, amount_cents, merchant, transfer_manual FROM transactions')
+    .all() as { id: string; account: string; posted_at: string; amount_cents: number; merchant: string; transfer_manual: number }[];
   const byKey = new Map<string, typeof rows>();
   for (const r of rows) {
     const key = `${Math.abs(r.amount_cents)}`;
@@ -164,6 +196,7 @@ export function detectInternalTransfers(db: Db): number {
         const a = group[i]!;
         const b = group[j]!;
         if (a.account === b.account) continue;
+        if (a.transfer_manual !== 0 || b.transfer_manual !== 0) continue;
         if (used.has(a.id) || used.has(b.id)) continue;
         if (Math.sign(a.amount_cents) === Math.sign(b.amount_cents)) continue;
         const da = new Date(a.posted_at).getTime();
@@ -194,6 +227,22 @@ const ma = a.merchant.toLowerCase().replace(/^enviado\s+/, '');
     throw err;
   }
   return pairs.length;
+}
+
+/** Marca manualmente um lançamento como transferência interna (ou desfaz). */
+export function markInternalTransfer(db: Db, id: string, value: boolean): boolean {
+  const row = db.prepare('SELECT id FROM transactions WHERE id = ?').get(id) as { id: string } | undefined;
+  if (!row) return false;
+  db.prepare('UPDATE transactions SET is_internal_transfer = ?, transfer_manual = ? WHERE id = ?').run(value ? 1 : 0, value ? 1 : -1, id);
+  return true;
+}
+
+/** Marca um crédito como estorno: sai do total de receitas. */
+export function markRefund(db: Db, id: string, value: boolean): boolean {
+  const row = db.prepare('SELECT id FROM transactions WHERE id = ?').get(id) as { id: string } | undefined;
+  if (!row) return false;
+  db.prepare('UPDATE transactions SET is_refund = ? WHERE id = ?').run(value ? 1 : 0, id);
+  return true;
 }
 
 export function getOverrideCategory(db: Db, merchant: string): string | null {

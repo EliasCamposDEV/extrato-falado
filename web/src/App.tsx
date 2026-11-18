@@ -5,7 +5,7 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget } from './lib/api.ts';
+import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget, patchTransaction, explainTransaction } from './lib/api.ts';
 import {
   countLabel,
   dayMonth,
@@ -81,6 +81,8 @@ export default function App() {
   const [exportingProof, setExportingProof] = useState(false);
   const [source, setSource] = useState<Source>('all');
   const [account, setAccount] = useState<string>('');
+  const [importAccount, setImportAccount] = useState<string>('');
+  const [importInvoice, setImportInvoice] = useState<string>('');
   const [includeInternal, setIncludeInternal] = useState(false);
   const [activeSection, setActiveSection] = useState('consulta');
 
@@ -366,9 +368,15 @@ export default function App() {
     setImportState(null);
 
     try {
+      // conta digitada vale para todos os arquivos desta leva; vazio = detectar
+      // pelo conteúdo do arquivo (OFX/BANKID) ou pelo nome.
+      const chosenAccount = importAccount.trim() || undefined;
+      // fatura: mês digitado vale para todos os arquivos desta leva. Vazio =
+      // detectar pelo próprio arquivo (vencimento/"fatura de ...").
+      const chosenInvoice = importInvoice || undefined;
       const imported = isPdf
-        ? await importFile(file.name, '', undefined, await readBase64(file))
-        : await importFile(file.name, await readTextFile(file));
+        ? await importFile(file.name, '', chosenAccount, await readBase64(file), chosenInvoice)
+        : await importFile(file.name, await readTextFile(file), chosenAccount, undefined, chosenInvoice);
 
       // saldo declarado = extrato reconhecido, so que sem movimento no periodo
       if (imported.read === 0 && imported.reportedBalanceCents == null) {
@@ -466,7 +474,7 @@ export default function App() {
                 </p>
                 <p className="slip-text">
                   {importState.kind === 'ok'
-                    ? `${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} lançamento(s) aparece(m) em mais de uma conta` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
+                    ? `${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.account ? ` · conta ${importState.result.account}` : ''}${importState.result.invoiceMonth ? ` · fatura ${importState.result.invoiceMonth}` : ''}${importState.result.installments ? ` · ${countLabel(importState.result.installments, 'parcela', 'parcelas')}` : ''}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} lançamento(s) aparece(m) em mais de uma conta` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
                     : importState.message}
                 </p>
               </div>
@@ -491,6 +499,31 @@ export default function App() {
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
+              <label htmlFor="import-account" title="vale para o próximo arquivo importado; vazio = detectar pelo arquivo">
+                conta do arquivo
+              </label>
+              <input
+                id="import-account"
+                type="text"
+                list="account-options"
+                placeholder="detectar"
+                value={importAccount}
+                onChange={(e) => setImportAccount(e.target.value)}
+              />
+              <datalist id="account-options">
+                {(summary?.accounts ?? []).map((a) => (
+                  <option key={a} value={a} />
+                ))}
+              </datalist>
+              <label htmlFor="import-invoice" title="mês da fatura do próximo arquivo; vazio = detectar pelo vencimento">
+                fatura
+              </label>
+              <input
+                id="import-invoice"
+                type="month"
+                value={importInvoice}
+                onChange={(e) => setImportInvoice(e.target.value)}
+              />
               <label htmlFor="from-input">de</label>
               <input
                 id="from-input"
@@ -679,6 +712,18 @@ export default function App() {
               const res = await recategorize(id, category, applyAll);
               setRecatMsg(applyAll ? `${res.changes} lançamento(s) reclassificado(s) para ${category}.` : `1 lançamento reclassificado para ${category}.`);
               await loadMonth(month, { range });
+            }}
+            onToggleInternalTransfer={async (id, value) => {
+              await patchTransaction(id, { internalTransfer: value });
+              await loadMonth(month, { range });
+            }}
+            onToggleRefund={async (id, value) => {
+              await patchTransaction(id, { refund: value });
+              await loadMonth(month, { range });
+            }}
+            onExplain={async (id) => {
+              const r = await explainTransaction(id);
+              return r.reason;
             }}
           />
 

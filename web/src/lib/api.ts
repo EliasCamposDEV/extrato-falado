@@ -164,12 +164,30 @@ export function getTransactions(period: Period, limit: number, source?: string, 
   return request(`/api/transactions?${params.toString()}`);
 }
 
-export function importFile(filename: string, content: string, account?: string, base64?: string): Promise<ImportResult> {
+export function importFile(
+  filename: string,
+  content: string,
+  account?: string,
+  base64?: string,
+  invoiceMonth?: string,
+): Promise<ImportResult> {
   return request<ImportResult>('/api/import', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(base64 ? { filename, base64, account } : { filename, content, account }),
+    body: JSON.stringify({ filename, ...(base64 ? { base64 } : { content }), account, invoiceMonth }),
   });
+}
+
+export function patchTransaction(id: string, payload: Record<string, unknown>): Promise<{ ok: boolean }> {
+  return request(`/api/transactions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function explainTransaction(id: string): Promise<{ id: string; category: string; source: string; reason: string }> {
+  return request(`/api/transactions/${encodeURIComponent(id)}/explain`);
 }
 
 export function resetData(mode: 'imported' | 'sample' | 'all' = 'imported'): Promise<{ removed: number; sources: { sample: number; imported: number }; summary: MonthSummary }> {

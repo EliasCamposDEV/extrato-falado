@@ -47,9 +47,17 @@ Cada banco desenha o extrato de um jeito, então o import escolhe o parser pela 
 | Caixa | o PDF é uma imagem: OCR (`tesseract.js`, idioma `por`) e a cadeia de saldo corrige o dígito que o OCR embolou |
 | Banco do Brasil | camada de texto; o favorecido vem na linha de baixo do histórico |
 | PicPay | cabeçalho de dia com saldo de fechamento; descrição quebrada em várias linhas; o saldo de cada dia fecha a cadeia inteira |
-| Santander (simplificado e consolidado) | camada de texto; no consolidado só a seção de movimentação é lida (os comprovantes repetem os mesmos Pix); o saldo depois de cada lançamento corrige o valor |
+| Nubank | camada de texto; cada dia agrupa entradas e saídas; o total do dia fecha a cadeia |
 
 Nenhum número do PDF passa pelo LLM: o parser entrega lançamentos em centavos e o import recusa o arquivo se a cadeia de saldo não fechar.
+
+### Fatura de cartão
+
+Compra de cartão tem duas datas: quando você comprou e em qual fatura ela caiu. O import guarda as duas (`posted_at` e `invoice_month`):
+
+- **O mês da fatura vem do arquivo** quando o texto se identifica como fatura (`cartão de crédito final`, `fatura`, `vencimento`, `limite disponível`); o vencimento é a âncora. Se o arquivo não se anuncia, dá para informar o mês no campo `fatura` da tela (ou `invoiceMonth` na API).
+- **Parcelamento vira coluna.** `PARCELA 3/10`, `parcela 2 de 6`, `(4/12)` e o sufixo `1/3` viram `installment_no`/`installment_total` e saem da descrição — o estabelecimento continua o mesmo para categorizar e agrupar.
+- **`fatura de outubro` filtra `invoice_month`, não `posted_at`.** A compra de agosto que caiu na fatura de outubro entra no total de outubro uma única vez; reimportar a fatura não duplica nada.
 
 ### Arquivo que não é extrato
 
@@ -80,32 +88,35 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 | `src/query/render.ts` | números → frase em português (template, não geração livre) |
 | `src/query/guard.ts` | nome citado na pergunta vira filtro, mesmo que o planner esqueça |
 | `src/query/context.ts` | continuação (`e no mês anterior?`) aplicada à spec anterior |
-| `src/domain/` | vocabulário compartilhado: meses, limites de mês, limpeza e bloqueio da pergunta |
+| `src/domain/` | vocabulário compartilhado: meses, limites de mês, limpeza e bloqueio da pergunta, fatura e parcelamento |
 | `src/planner/fake.ts` | planner heurístico, offline, sem chave de API (padrão) |
 | `src/planner/openai.ts` | planner via LLM (endpoint compatível com OpenAI), com fallback e repair loop |
-| `src/ingest/` | CSV, OFX e PDF por banco (Caixa com OCR, BB, PicPay, Santander), conferência de saldo e dédupe |
+| `src/ingest/` | CSV, OFX e PDF por banco (Caixa com OCR, BB, PicPay, Santander), conta detectada pelo conteúdo, fatura, conferência de saldo e dédupe |
 | `src/categorize/` | regra → kNN TF-IDF → `Outros` |
 | `src/eval/` | 12 casos com spec e resposta esperadas |
 | `src/server.ts` | API local: roteamento, validação e guardas de segurança |
 | `src/stats.ts` | consultas de resumo, comparação, orçamento e lançamentos (todo valor sai do SQLite) |
 | `src/export-pdf.ts` | super extrato e folha de prova em PDF |
+| `Dockerfile` / `render.yaml` | deploy em container com o SQLite em disco persistente |
 | `web/src/` | React: caderneta, carimbo do período, folha de prova e recibo de importação |
 | `web/src/styles.css` | sistema visual: paleta, tipografia, responsivo e movimento |
-| `test/core.test.ts` | 37 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, guard, continuação, ponta a ponta) |
-| `test/api.test.ts` | 28 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, comparação (mês e período livre), orçamento (mês e período rateado), reclassificação (inclusive o override que o import passa a usar), import, reset, PDF e as guardas de segurança |
+| `test/core.test.ts` | 44 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, contas, fatura, guard, continuação, ponta a ponta) |
+| `test/api.test.ts` | 31 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, comparação (mês e período livre), orçamento (mês e período rateado), reclassificação (inclusive o override que o import passa a usar), import, fatura, reset, PDF e as guardas de segurança |
 
 ### Rotas da API
 
 | Rota | Função |
 |---|---|
 | `GET /api/health` | estado do banco, planner ativo e contas |
-| `GET /api/summary` | resumo de um mês (`?month=`) ou período (`?from=&to=`): entradas, saídas, categorias, meses e contas |
-| `GET /api/transactions` | lançamentos do mês ou período, com limite (combina `source`, `account` e `includeInternal`) |
+| `GET /api/summary` | resumo de um mês (`?month=`) ou período (`?from=&to=`): entradas, saídas, categorias, meses e contas; aceita `invoice=aaaa-mm` |
+| `GET /api/transactions` | lançamentos do mês ou período, com limite (combina `source`, `account`, `invoice` e `includeInternal`) |
+| `GET /api/invoices` | meses de fatura com total, quantidade de lançamentos e quantos são parcelas |
 | `GET /api/compare` | compara o mês (com o mês fechado anterior) ou um período livre (com o período anterior de mesmo tamanho) |
 | `GET/POST/DELETE /api/budgets` | orçamento mensal por categoria com gasto e ritmo; o GET também aceita período livre (limite rateado pelos dias cobertos) |
-| `PATCH /api/transactions/:id` | corrige a categoria de um lançamento; `applyAll` grava o override do estabelecimento |
-| `POST /api/ask` | pergunta → `QuerySpec`, SQL, parâmetros, número e resposta |
-| `POST /api/import` | CSV/OFX em texto ou PDF em base64, com recibo |
+| `PATCH /api/transactions/:id` | corrige a categoria; `applyAll` grava o override do estabelecimento; `internalTransfer`/`refund` marcam transferência interna ou estorno |
+| `GET /api/transactions/:id/explain` | por que essa categoria? (regra que casou, similaridade ou correção manual) |
+| `POST /api/ask` | pergunta → `QuerySpec`, SQL, parâmetros, número e resposta; aceita `invoice` para amarrar a fatura |
+| `POST /api/import` | CSV/OFX em texto ou PDF em base64, com recibo; `account`, `kind` (`card`/`account`) e `invoiceMonth` são opcionais |
 | `POST /api/reset` | apaga a amostra, o importado ou tudo |
 | `GET /api/export/pdf` | super extrato com o mesmo recorte da tela (`?month=` ou `?from=&to=`, mais `source`/`account`/`includeInternal`) |
 | `POST /api/export/proof` | folha de prova a partir da spec exibida, sem replanejar |
@@ -119,17 +130,18 @@ A demo abre pronta no último mês completo e já mostra a resposta com o SQL ao
 - **A prova é uma camada.** A folha translúcida sobre a página traz o SQL executado, os parâmetros, o planner, o tempo, `0 tokens somados` e o `QuerySpec` completo.
 - **Troca de mês pela lombada.** As abas de mês mudam o extrato inteiro: resumo, consulta padrão e lista de lançamentos.
 - **Período livre.** Os campos `de`/`até` recortam resumo, lista e consulta para qualquer intervalo; `mês todo` volta para as abas. As rotas aceitam `?month=` ou `?from=&to=`.
-- **Importa o seu arquivo.** CSV, OFX ou PDF (Caixa, BB, PicPay e Santander, com OCR quando o PDF é imagem), até 12 MB (8 MB no PDF), com recibo de linhas lidas, novas e já existentes. Arquivo que não é extrato é recusado sem apagar o que já estava carregado. Os lançamentos ficam no SQLite local; nada sai da máquina.
+- **Importa o seu arquivo.** CSV, OFX ou PDF (Nubank, Caixa, BB, PicPay e Santander, com OCR quando o PDF é imagem), até 12 MB (8 MB no PDF), com recibo de linhas lidas, novas e já existentes. A conta sai do próprio arquivo (OFX `BANKID`/`ACCTID` ou cabeçalho do CSV) e pode ser corrigida no campo `conta do arquivo`; fatura de cartão tem campo `fatura`, e o parcelamento entra no recibo. Arquivo que não é extrato é recusado sem apagar o que já estava carregado. Os lançamentos ficam no SQLite local; nada sai da máquina.
 - **Junta tudo num super extrato.** O botão `exportar PDF` gera um PDF com capa, resumo geral, resumo por conta, os lançamentos ordenados por data com subtotal por mês e o total geral — respeitando o período livre e a fonte escolhidos na tela.
 - **Prova em papel.** A folha de prova tem um botão que baixa um PDF com a pergunta, a resposta, o número apurado, o SQL, os parâmetros e o `QuerySpec` — o mesmo recorte que estava na tela, sem replanejar.
 - **Continua a conversa.** Depois de uma resposta, o chip `e no mês anterior?` refaz a consulta no mês anterior ao da pergunta (não ao do relógio), herdando intenção e filtros.
+- **Explica e corrige.** Cada lançamento tem `?` (por que essa categoria?), `↔` (marcar como transferência interna) e `↩` (marcar como estorno); a marcação manual sobrevive a uma nova detecção automática.
 - **Responsivo de verdade.** Em 390px a prova sobe como bottom sheet com scrim, o campo de consulta gruda na base e as colunas secundárias somem.
 
 Stack: Vite + React no cliente, Node + SQLite no servidor. O cliente só formata o que a API devolve; nenhuma soma acontece no navegador.
 
 ## Rodando
 
-Requisitos: Node 22+ (usa `node:sqlite` e _type stripping_, então não há etapa de build).
+Requisitos: Node 22.13+ (usa `node:sqlite` e _type stripping_, então não há etapa de build).
 
 ```bash
 npm install
@@ -140,7 +152,7 @@ npm run ask -- "quanto gastei em outubro"
 npm run demo                            # 5 perguntas de demonstração
 npm run eval                            # mede planner e resposta (heurístico)
 npm run eval -- --llm                   # mede o planner configurado (usa a rede)
-npm test                                # 65 testes (37 de unidade + 28 de API)
+npm test                                # 75 testes (44 de unidade + 31 de API)
 npm run typecheck
 ```
 
@@ -157,6 +169,28 @@ Roda **sem chave de API** por padrão. Para usar o planner LLM:
 cp .env.example .env      # PLANNER=openai + OPENAI_API_KEY
 npm run ask -- "quanto gastei com besteira em outubro"
 ```
+
+## Deploy
+
+O app é um processo Node com um arquivo SQLite: o mesmo container serve interface e API. O `Dockerfile` deixa `/data` como volume — é lá que ficam `extrato.db` e o cache do OCR.
+
+```bash
+docker build -t onde-foi-meu-dinheiro .
+docker run -d --name extrato -p 8787:8787 \
+  -e HOST=0.0.0.0 \
+  -e APP_PASSWORD=escolha-uma-senha \
+  -v extrato-data:/data \
+  onde-foi-meu-dinheiro
+```
+
+| Variável | Por quê |
+|---|---|
+| `HOST=0.0.0.0` | dentro do container, o proxy não alcança `127.0.0.1` |
+| `PUBLIC_HOSTS=app.exemplo.com` | allowlist do Host/Origin público; sem ela a API recusa o domínio do deploy (a proteção contra DNS rebinding continua valendo) |
+| `APP_PASSWORD` | liga o HTTP Basic (usuário `extrato`). `/api/health` fica aberto, mas sem detalhes. **Sem senha, qualquer visitante lê o extrato** |
+| `EXTRATO_DB` | caminho do banco (no container, `/data/extrato.db`). Monte o volume nesse diretório ou o banco recomeça da amostra a cada deploy |
+
+No **Render**, o `render.yaml` é um Blueprint: serviço Docker, health check em `/api/health`, disco de 1 GB em `/data` e `APP_PASSWORD` pedida no painel (`sync: false`). Disco persistente exige plano pago (starter); no plano free a demo funciona, mas o banco é recriado a cada deploy. Uma instância só: SQLite não escala horizontalmente, e para um extrato pessoal não precisa.
 
 ## Saída real
 
@@ -194,6 +228,8 @@ Resposta:    12/12 (100%)
 
 O planner heurístico serve de **baseline**: uma LLM só se justifica se bater isso.
 
+Para medir o planner LLM: copie `.env.example` para `.env`, defina `PLANNER=openai` e uma chave em `OPENAI_API_KEY`, depois `npm run eval -- --llm`. Sem chave (ou com `PLANNER=fake`) o comando mede o heurístico, que é o baseline determinístico e sem rede.
+
 ## Decisões de projeto
 
 1. **Dinheiro em centavos (`INTEGER`).** `0.1 + 0.2 !== 0.3`; banco não pode ter esse problema.
@@ -210,15 +246,20 @@ O planner heurístico serve de **baseline**: uma LLM só se justifica se bater i
 - Import é manual (CSV/OFX/PDF). Sem Open Finance.
 - Transferências internas são detectadas por heurística (mesmo valor, sinais opostos, contas diferentes e estabelecimentos relacionados); casos ambíguos ainda podem escapar.
 - "Média" usa valor absoluto.
+- Fatura de cartão é detectada pelo texto do arquivo (ou pelo campo `fatura`/`invoiceMonth`); sem isso, o arquivo cai como extrato de conta e o mês da fatura não é preenchido. O vencimento sem ano cai no ano do extrato.
 
 ## Próximos passos
 
 - [x] UI web (Vite + React) com o SQL visível sobre a resposta
 - [x] orçamento por categoria com alerta
 - [x] transferência interna detectada automaticamente
+- [x] estorno e marcação manual de transferência (PATCH por lançamento)
+- [x] "por que essa categoria?" com a regra que casou (endpoint `/api/transactions/:id/explain`)
+- [x] fatura de cartão (parcelamento, vencimento, compras internacionais como lançamentos normais)
+- [x] deploy em container com disco persistente (Dockerfile + Render Blueprint)
 - [ ] "por que essa categoria?" mostrando a regra que casou
 - [ ] estorno e marcação manual de transferência
-- [ ] OFX reais de Nubank / Itaú / Inter + Open Finance
+- [ ] OFX reais de Itaú / Inter + Open Finance (Nubank já suportado em PDF)
 
 ---
 

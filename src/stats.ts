@@ -17,6 +17,7 @@ export interface Period {
 interface Scope {
   source?: string;
   account?: string;
+  invoice?: string;
   includeInternal?: boolean;
 }
 
@@ -26,6 +27,7 @@ function scopeWhere(period: Period, scope: Scope, extra: string[] = []): { where
   const params: (string | number)[] = [period.from, period.to];
   if (scope.source && scope.source !== 'all') { clauses.push('source = ?'); params.push(scope.source); }
   if (scope.account) { clauses.push('account = ?'); params.push(scope.account); }
+  if (scope.invoice) { clauses.push('invoice_month = ?'); params.push(scope.invoice); }
   if (!scope.includeInternal) clauses.push('is_internal_transfer = 0');
   for (const e of extra) clauses.push(e);
   return { where: clauses.join(' AND '), params };
@@ -78,7 +80,7 @@ function categoriesForPeriod(db: Db, { from, to }: Period, source?: string, acco
 function totalsForPeriod(db: Db, { from, to }: Period, source?: string, account?: string, includeInternal?: boolean): { outCents: number; inCents: number; count: number } {
   const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
   const row = db
-    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${where}`)
+    .prepare(`SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents, COALESCE(SUM(CASE WHEN amount_cents > 0 AND is_refund = 0 THEN amount_cents END), 0) AS in_cents, COUNT(*) AS n FROM transactions WHERE ${where}`)
     .get(...params) as { out_cents: number; in_cents: number; n: number };
   return { outCents: Math.abs(Number(row.out_cents)), inCents: Number(row.in_cents), count: Number(row.n) };
 }
@@ -144,12 +146,12 @@ export function comparePeriods(db: Db, period: Period, previous: Period, source?
   };
 }
 
-export function summary(db: Db, { from, to }: Period, plannerName: string, source?: string, account?: string, includeInternal?: boolean) {
-  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
+export function summary(db: Db, { from, to }: Period, plannerName: string, source?: string, account?: string, includeInternal?: boolean, invoice?: string) {
+  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal, invoice });
   const totals = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents END), 0) AS out_cents,
-              COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents END), 0) AS in_cents,
+              COALESCE(SUM(CASE WHEN amount_cents > 0 AND is_refund = 0 THEN amount_cents END), 0) AS in_cents,
               COUNT(*) AS n
        FROM transactions WHERE ${where}`,
     )
@@ -162,10 +164,14 @@ export function summary(db: Db, { from, to }: Period, plannerName: string, sourc
     )
     .all(...params) as { label: string; total_cents: number; n: number }[];
 
-  const monthsWhere = [source && 'source = ?', account && 'account = ?'].filter(Boolean).join(' AND ');
+  const monthsWhere = [
+    source && 'source = ?',
+    account && 'account = ?',
+    invoice && 'invoice_month = ?',
+  ].filter(Boolean).join(' AND ');
   const months = (db
     .prepare(`SELECT DISTINCT substr(posted_at, 1, 7) AS m FROM transactions ${monthsWhere ? `WHERE ${monthsWhere}` : ''} ORDER BY m DESC`)
-    .all(...[source, account].filter(Boolean) as string[]) as { m: string }[]).map((row) => row.m);
+    .all(...[source, account, invoice].filter(Boolean) as string[]) as { m: string }[]).map((row) => row.m);
 
   return {
     month: to.slice(0, 7),
@@ -185,15 +191,16 @@ export function summary(db: Db, { from, to }: Period, plannerName: string, sourc
     source: source ?? 'all',
     sources: countBySource(db),
     accounts: distinctAccounts(db),
+    invoiceMonths: invoices(db, source, account).map((row) => row.month),
   };
 }
 
-export function transactions(db: Db, { from, to }: Period, limit: number, source?: string, account?: string, includeInternal?: boolean) {
-  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal });
+export function transactions(db: Db, { from, to }: Period, limit: number, source?: string, account?: string, includeInternal?: boolean, invoice?: string) {
+  const { where, params } = scopeWhere({ from, to }, { source, account, includeInternal, invoice });
   params.push(limit);
   const rows = db
     .prepare(
-      `SELECT id, posted_at, description, merchant, category, amount_cents, account
+      `SELECT id, posted_at, description, merchant, category, amount_cents, account, is_internal_transfer, is_refund
        FROM transactions WHERE ${where}
        ORDER BY posted_at DESC, ABS(amount_cents) DESC LIMIT ?`,
     )
@@ -204,6 +211,8 @@ export function transactions(db: Db, { from, to }: Period, limit: number, source
       merchant: string;
       category: string;
       amount_cents: number;
+      is_internal_transfer: number;
+      is_refund: number;
     }[];
 
   return rows.map((row) => ({
@@ -213,6 +222,34 @@ export function transactions(db: Db, { from, to }: Period, limit: number, source
     merchant: String(row.merchant),
     category: String(row.category),
     amountCents: Number(row.amount_cents),
+    isInternalTransfer: Number(row.is_internal_transfer) === 1,
+    isRefund: Number(row.is_refund) === 1,
+  }));
+}
+
+/**
+ * Meses de fatura presentes no banco. A fatura nao se confunde com o mes da
+ * compra: uma parcela comprada em agosto aparece na fatura de outubro.
+ */
+export function invoices(db: Db, source?: string, account?: string) {
+  const clauses: string[] = ['invoice_month IS NOT NULL'];
+  const params: string[] = [];
+  if (source && source !== 'all') { clauses.push('source = ?'); params.push(source); }
+  if (account) { clauses.push('account = ?'); params.push(account); }
+  const rows = db
+    .prepare(
+      `SELECT invoice_month AS month, COUNT(*) AS n,
+              ABS(SUM(amount_cents)) AS total_cents,
+              SUM(CASE WHEN installment_no IS NOT NULL THEN 1 ELSE 0 END) AS installments
+       FROM transactions WHERE ${clauses.join(' AND ')}
+       GROUP BY invoice_month ORDER BY invoice_month DESC`,
+    )
+    .all(...params) as { month: string; n: number; total_cents: number; installments: number }[];
+  return rows.map((row) => ({
+    month: String(row.month),
+    count: Number(row.n),
+    totalCents: Number(row.total_cents),
+    installments: Number(row.installments),
   }));
 }
 

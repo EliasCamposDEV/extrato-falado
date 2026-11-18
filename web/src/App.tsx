@@ -705,7 +705,7 @@ export default function App() {
             allLoaded={allLoaded}
             loadingAll={loadingAll}
             periodLabel={range ? 'período' : 'mês'}
-            categories={[...new Set([...(summary?.allCategories ?? []), 'Renda'])]}
+            categories={[...new Set([...(summary?.allCategories ?? []), 'Renda', 'Moradia', 'Supermercado', 'Transporte', 'Alimentação', 'Saúde', 'Assinaturas', 'Lazer', 'Compras', 'Bem-estar', 'Tarifas', 'Saques', 'Transferências', 'Outros'])]}
             notice={recatMsg}
             onLoadAll={() => void loadAll()}
             onRecategorize={async (id, category, applyAll) => {

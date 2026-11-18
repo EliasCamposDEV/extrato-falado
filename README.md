@@ -204,6 +204,7 @@ npx vercel --prod # produção
 
 - `vercel.json` define build, `outputDirectory` e o rewrite de `/api/*` para a função.
 - Ao mexer no servidor, rode `npm run build:api` e commite o bundle junto (ele só é gerado de novo no deploy).
+- A função leva o canvas nativo (`@napi-rs/canvas`, carregado em `src/ingest/pdf.ts`) e o worker do pdf.js via `includeFiles`: sem eles o import de PDF morre com `DOMMatrix is not defined` ou `fake worker`.
 - `data/sample-extrato.csv` entra na função via `includeFiles`; o `data/extrato.db` local nunca sobe (`.vercelignore`).
 - A Vercel corta corpos em ~4,5 MB: PDFs acima de ~3 MB são recusados, e a UI lê esse teto do `/api/health`.
 - `PUBLIC_HOSTS` é preenchido sozinho com `VERCEL_URL`; `APP_PASSWORD` continua opcional.

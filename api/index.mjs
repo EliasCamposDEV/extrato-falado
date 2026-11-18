@@ -735,6 +735,7 @@ var NOTHING = {
   accountHint: null
 };
 async function pdfToText(buffer) {
+  await loadDomGlobals();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
@@ -743,6 +744,13 @@ async function pdfToText(buffer) {
   } finally {
     await parser.destroy();
   }
+}
+async function loadDomGlobals() {
+  if (globalThis.DOMMatrix) return;
+  const canvas = await import("@napi-rs/canvas");
+  globalThis.DOMMatrix ??= canvas.DOMMatrix;
+  globalThis.ImageData ??= canvas.ImageData;
+  globalThis.Path2D ??= canvas.Path2D;
 }
 var JPEG_START = Buffer.from([255, 216, 255]);
 var JPEG_END = Buffer.from([255, 217]);

@@ -22,6 +22,7 @@ const NOTHING: PdfExtract = {
 
 /** Texto do PDF. pdf-parse entra por import dinamico: so carrega quando chega um PDF. */
 export async function pdfToText(buffer: Uint8Array): Promise<string> {
+  await loadDomGlobals();
   const { PDFParse } = await import('pdf-parse');
   // copia: pdf-parse transfere o array para o worker e o do chamador fica destacado,
   // o que quebraria um segundo import do mesmo arquivo
@@ -32,6 +33,22 @@ export async function pdfToText(buffer: Uint8Array): Promise<string> {
   } finally {
     await parser.destroy();
   }
+}
+
+/**
+ * O pdf.js instancia um `DOMMatrix` global ao carregar, mesmo quando so vamos
+ * extrair texto, e espera que o `@napi-rs/canvas` defina esse global. O
+ * pdf-parse nao carrega o canvas sozinho e, no deploy, o empacotador nao segue
+ * o `require` dinamico que fica dentro da dependencia: sem este import literal
+ * (que e o que o rastreamento de arquivos da Vercel enxerga) o binario nativo
+ * nao entra na funcao e o import de PDF morre com "DOMMatrix is not defined".
+ */
+async function loadDomGlobals(): Promise<void> {
+  if (globalThis.DOMMatrix) return;
+  const canvas = await import('@napi-rs/canvas');
+  globalThis.DOMMatrix ??= canvas.DOMMatrix as unknown as typeof globalThis.DOMMatrix;
+  globalThis.ImageData ??= canvas.ImageData as unknown as typeof globalThis.ImageData;
+  globalThis.Path2D ??= canvas.Path2D as unknown as typeof globalThis.Path2D;
 }
 
 const JPEG_START = Buffer.from([0xff, 0xd8, 0xff]);

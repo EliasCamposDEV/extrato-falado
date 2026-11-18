@@ -3,3 +3,5 @@
 *.jpg binary
 *.pdf binary
 *.woff2 binary
+# bundle da funcao serverless: gerado por scripts/build-api.mjs
+api/index.mjs linguist-generated=true

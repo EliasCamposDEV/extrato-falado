@@ -195,7 +195,7 @@ No **Render**, o `render.yaml` é um Blueprint: serviço Docker, health check em
 
 ### Vercel (demo)
 
-A Vercel serve a UI estática (`web/dist`) e a API como uma função Node (`api/index.mjs`, gerada por `npm run build:api` no build). Função serverless não tem disco persistente, então o banco vai para `/tmp`: a demo sempre abre semeada com a amostra, mas **o que você importar vive só naquela instância** e some quando ela recicla. A própria tela avisa (`/api/health` devolve `ephemeral: true`).
+A Vercel serve a UI estática (`web/dist`) e a API como uma função Node (`api/index.mjs`, bundle gerado por `npm run build:api`). O bundle é versionado porque a Vercel valida o bloco `functions` do `vercel.json` **antes** de rodar o `buildCommand`; o build regenera o arquivo a partir de `src/`. Função serverless não tem disco persistente, então o banco vai para `/tmp`: a demo sempre abre semeada com a amostra, mas **o que você importar vive só naquela instância** e some quando ela recicla. A própria tela avisa (`/api/health` devolve `ephemeral: true`).
 
 ```bash
 npx vercel        # preview
@@ -203,6 +203,7 @@ npx vercel --prod # produção
 ```
 
 - `vercel.json` define build, `outputDirectory` e o rewrite de `/api/*` para a função.
+- Ao mexer no servidor, rode `npm run build:api` e commite o bundle junto (ele só é gerado de novo no deploy).
 - `data/sample-extrato.csv` entra na função via `includeFiles`; o `data/extrato.db` local nunca sobe (`.vercelignore`).
 - A Vercel corta corpos em ~4,5 MB: PDFs acima de ~3 MB são recusados, e a UI lê esse teto do `/api/health`.
 - `PUBLIC_HOSTS` é preenchido sozinho com `VERCEL_URL`; `APP_PASSWORD` continua opcional.

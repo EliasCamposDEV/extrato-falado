@@ -320,6 +320,18 @@ code {
   text-transform: uppercase;
   color: var(--sage-deep);
 }
+
+/* aviso da demo no Vercel: linha inteira, sem competir com os controles */
+.demo-note {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-family: var(--body);
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--stamp);
+}
 .source-control label { color: var(--sage-deep); }
 .source-control select {
   border: 1px solid var(--rule);

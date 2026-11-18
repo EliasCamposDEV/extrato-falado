@@ -5,7 +5,7 @@ import { Audit } from './components/Audit.tsx';
 import { Ledger } from './components/Ledger.tsx';
 import { Mechanism } from './components/Mechanism.tsx';
 import { Transactions } from './components/Transactions.tsx';
-import { ask, deleteBudget, exportProof, getBudgets, getCompare, getSummary, getTransactions, importFile, recategorize, resetData, setBudget, patchTransaction, explainTransaction } from './lib/api.ts';
+import { ask, deleteBudget, exportProof, getBudgets, getCompare, getHealth, getSummary, getTransactions, importFile, recategorize, resetData, setBudget, patchTransaction, explainTransaction } from './lib/api.ts';
 import {
   countLabel,
   dayMonth,
@@ -85,6 +85,8 @@ export default function App() {
   const [importInvoice, setImportInvoice] = useState<string>('');
   const [includeInternal, setIncludeInternal] = useState(false);
   const [activeSection, setActiveSection] = useState('consulta');
+  const [ephemeral, setEphemeral] = useState(false);
+  const [maxUploadBytes, setMaxUploadBytes] = useState<number | null>(null);
 
   const nextEntry = useRef(1);
   const booted = useRef(false);
@@ -232,6 +234,23 @@ export default function App() {
     void bootstrap();
   }, [bootstrap]);
 
+  // demo no Vercel: avisa que o extrato importado vive em /tmp (some no cold start)
+  useEffect(() => {
+    let alive = true;
+    getHealth()
+      .then((health) => {
+        if (!alive) return;
+        setEphemeral(Boolean(health.ephemeral));
+        setMaxUploadBytes(health.limits?.maxUploadBytes ?? null);
+      })
+      .catch(() => {
+        // health indisponível não impede o uso da tela
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // os campos de data mostram o recorte que está na tela, inclusive quando vem de um import ou do botão "mês todo"
   useEffect(() => {
     setDraftFrom(range?.from ?? '');
@@ -356,10 +375,16 @@ export default function App() {
       });
       return;
     }
-    if (file.size > (isPdf ? MAX_PDF : MAX_FILE)) {
+    // na demo da Vercel o corpo da requisição é limitado pela plataforma
+    const pdfLimit = Math.min(MAX_PDF, maxUploadBytes ?? MAX_PDF);
+    const fileLimit = Math.min(MAX_FILE, maxUploadBytes ?? MAX_FILE);
+    if (file.size > (isPdf ? pdfLimit : fileLimit)) {
+      const mb = Math.floor((isPdf ? pdfLimit : fileLimit) / (1024 * 1024));
       setImportState({
         kind: 'error',
-        message: isPdf ? 'O PDF passa de 8 MB. Exporte um período menor.' : 'O arquivo passa de 12 MB. Exporte um período menor.',
+        message: isPdf
+          ? `O PDF passa de ${mb} MB. Exporte um período menor.`
+          : `O arquivo passa de ${mb} MB. Exporte um período menor.`,
       });
       return;
     }
@@ -573,6 +598,11 @@ export default function App() {
                 <button type="button" className="source-clear" onClick={async () => { try { const res = await resetData("imported"); setImportState({ kind: "ok", result: { read: res.removed, inserted: 0, duplicates: 0, format: "csv", month: res.summary.month, summary: res.summary } as any }); setSource("all"); setMonths(res.summary.months); await loadMonth(pickMonth(res.summary.months)); } catch (e) { setImportState({ kind: "error", message: e instanceof Error ? e.message : "erro" }); } }}>
                   limpar importados ({summary.sources.imported})
                 </button>
+              ) : null}
+              {ephemeral ? (
+                <p className="demo-note" role="note">
+                  demo pública: o que você importar fica só nesta instância e some depois de um tempo.
+                </p>
               ) : null}
             </div>
             <Ledger

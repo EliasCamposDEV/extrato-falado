@@ -44,6 +44,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** `ephemeral` = demo no Vercel (SQLite em /tmp): importações não sobrevivem a um cold start. */
+export function getHealth(): Promise<{
+  ok: boolean;
+  ephemeral?: boolean;
+  limits?: { maxUploadBytes: number | null };
+}> {
+  return request('/api/health');
+}
+
 export function getBudgets(period?: Period, source?: string, account?: string, includeInternal?: boolean): Promise<{ month: string; from: string; to: string; items: BudgetItem[] }> {
   const params = new URLSearchParams();
   setPeriod(params, period);

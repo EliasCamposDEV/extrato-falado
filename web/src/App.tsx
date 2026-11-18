@@ -436,7 +436,7 @@ export default function App() {
       <header className="cover">
         <div className="cover-row">
           <a className="brand" href="#consulta">
-            <span className="brand-name">Onde foi o meu dinheiro?</span>
+            <span className="brand-name">Extrato Falado</span>
             <span className="brand-meta">caderneta nº 0001 · extrato local</span>
           </a>
 
@@ -761,7 +761,7 @@ export default function App() {
 
           <footer className="colophon">
             <div>
-              <p className="colophon-brand">Onde foi o meu dinheiro?</p>
+              <p className="colophon-brand">Extrato Falado</p>
               <p className="colophon-text">
                 {summary?.sources && summary.sources.imported > 0
                   ? 'Seu extrato importado. O arquivo fica no SQLite do processo e não sai daqui.'

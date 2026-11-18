@@ -2647,7 +2647,7 @@ function buildStatementPdf(db2, options) {
     const ensure = (needed) => {
       if (y + needed > pageBottom) addPage();
     };
-    doc.font("Helvetica-Bold").fontSize(18).fillColor("#1A2536").text("Onde foi o meu dinheiro?", left, 40);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#1A2536").text("Extrato Falado", left, 40);
     doc.font("Helvetica").fontSize(10).fillColor("#454F5E").text("Super extrato \u2014 lan\xE7amentos consolidados", left, 64);
     const period = options?.from && options?.to ? `${shortDate(options.from)} a ${shortDate(options.to)}` : rows.length ? `${shortDate(rows[0].posted_at)} a ${shortDate(rows[rows.length - 1].posted_at)}` : "sem lan\xE7amentos";
     doc.fontSize(9).fillColor("#5F6F63").text(
@@ -2732,7 +2732,7 @@ function buildStatementPdf(db2, options) {
     doc.text(`${money(totalIn + totalOut)}`, columns.value, y, { width: right - columns.value, align: "right" });
     y += 18;
     doc.font("Helvetica").fontSize(8).fillColor("#5F6F63").text(
-      "Gerado pelo Onde foi o meu dinheiro? \u2014 nenhum token somado; todo valor veio do SQLite.",
+      "Gerado pelo Extrato Falado \u2014 nenhum token somado; todo valor veio do SQLite.",
       left,
       y,
       { width: right - left }
@@ -2744,7 +2744,7 @@ function buildProofPdf(payload) {
     const left = 40;
     const right = 555;
     let y = 40;
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#5F6F63").text("ONDE FOI O MEU DINHEIRO?", left, y);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#5F6F63").text("EXTRATO FALADO", left, y);
     y += 18;
     doc.font("Helvetica-Bold").fontSize(18).fillColor("#1A2536").text("Folha de prova", left, y);
     y += 26;

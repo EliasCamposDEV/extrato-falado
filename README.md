@@ -1,4 +1,4 @@
-# Onde foi meu dinheiro
+# Extrato Falado
 
 Chat sobre o seu extrato bancário que **nunca erra a conta**.
 
@@ -176,12 +176,12 @@ npm run ask -- "quanto gastei com besteira em outubro"
 O app é um processo Node com um arquivo SQLite: o mesmo container serve interface e API. O `Dockerfile` deixa `/data` como volume — é lá que ficam `extrato.db` e o cache do OCR.
 
 ```bash
-docker build -t onde-foi-meu-dinheiro .
+docker build -t extrato-falado .
 docker run -d --name extrato -p 8787:8787 \
   -e HOST=0.0.0.0 \
   -e APP_PASSWORD=escolha-uma-senha \
   -v extrato-data:/data \
-  onde-foi-meu-dinheiro
+  extrato-falado
 ```
 
 | Variável | Por quê |

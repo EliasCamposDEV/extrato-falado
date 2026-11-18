@@ -1,5 +1,5 @@
 ---
-name: onde foi meu dinheiro
+name: extrato falado
 description: Extrato bancário que responde em português e carimba a consulta que produziu o número.
 colors:
   cover: "#1D3F73"
@@ -93,7 +93,7 @@ components:
     padding: "12px 0 10px"
 ---
 
-# Design System: onde foi meu dinheiro
+# Design System: extrato falado
 
 ## Overview
 

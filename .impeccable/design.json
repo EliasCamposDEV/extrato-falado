@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-11-14T05:20:00.000Z",
-  "title": "Design System: onde foi meu dinheiro",
+  "title": "Design System: extrato falado",
   "extensions": {
     "colorMeta": {
       "cover": {
@@ -130,7 +130,7 @@
       "kind": "nav",
       "refersTo": "button-cover-outline",
       "description": "Capa azul com marca, links de seção e importação fantasma.",
-      "html": "<header class=\"ds-cover\"><a class=\"ds-brand\" href=\"#\">onde foi meu dinheiro</a><nav class=\"ds-nav\"><a class=\"ds-link ds-link--current\" href=\"#\">Extrato</a><a class=\"ds-link\" href=\"#\">Lançamentos</a><button class=\"ds-import\" type=\"button\">Importar extrato</button></nav></header>",
+      "html": "<header class=\"ds-cover\"><a class=\"ds-brand\" href=\"#\">extrato falado</a><nav class=\"ds-nav\"><a class=\"ds-link ds-link--current\" href=\"#\">Extrato</a><a class=\"ds-link\" href=\"#\">Lançamentos</a><button class=\"ds-import\" type=\"button\">Importar extrato</button></nav></header>",
       "css": ".ds-cover{display:flex;align-items:center;justify-content:space-between;gap:24px;height:64px;padding:0 28px 0 32px;background:var(--cover);color:var(--page);font-family:var(--body)}.ds-brand{font-family:var(--display);font-size:23px;font-weight:700;color:inherit;text-decoration:none}.ds-nav{display:flex;align-items:center;gap:26px;font-size:12.5px}.ds-link{color:rgba(244,239,226,.75);text-decoration:none;padding:5px 0;border-bottom:1px solid transparent}.ds-link:hover{color:var(--page)}.ds-link--current{color:var(--page);border-bottom-color:rgba(244,239,226,.7)}.ds-import{border:1px solid rgba(244,239,226,.48);background:transparent;color:var(--page);font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;padding:8px 13px;cursor:pointer;transition:background-color 160ms ease,color 160ms ease}.ds-import:hover{background:var(--page);color:var(--cover)}.ds-import:focus-visible,.ds-link:focus-visible{outline:2px solid var(--page);outline-offset:2px}"
     },
     {

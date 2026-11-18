@@ -1,7 +1,7 @@
 # Design — Cartão de crédito (fatura, parcelas, internacional)
 
 > Status: **desenho, ainda não codado.** Nada foi alterado no código. Este documento é o plano para aprovação antes da implementação.
-> Contexto: app pessoal "Onde foi o meu dinheiro?" — hoje trata toda conta como conta corrente. A maior lacuna para o usuário comum é cartão de crédito (fatura que atravessa meses, parcelamento, compra internacional).
+> Contexto: app pessoal "Extrato Falado" - hoje trata toda conta como conta corrente. A maior lacuna para o usuário comum é cartão de crédito (fatura que atravessa meses, parcelamento, compra internacional).
 
 ---
 

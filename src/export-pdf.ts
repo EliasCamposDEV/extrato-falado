@@ -103,7 +103,7 @@ export function buildStatementPdf(db: Db, options?: { source?: string; from?: st
     };
 
     // capa
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Onde foi o meu dinheiro?', left, 40);
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Extrato Falado', left, 40);
     doc.font('Helvetica').fontSize(10).fillColor('#454F5E').text('Super extrato — lançamentos consolidados', left, 64);
     // periodo do papel: o recorte pedido ou, sem recorte, a primeira e a ultima data do banco
     const period = options?.from && options?.to
@@ -206,7 +206,7 @@ export function buildStatementPdf(db: Db, options?: { source?: string; from?: st
     doc.text(`${money(totalIn + totalOut)}`, columns.value, y, { width: right - columns.value, align: 'right' });
     y += 18;
     doc.font('Helvetica').fontSize(8).fillColor('#5F6F63').text(
-      'Gerado pelo Onde foi o meu dinheiro? — nenhum token somado; todo valor veio do SQLite.',
+      'Gerado pelo Extrato Falado — nenhum token somado; todo valor veio do SQLite.',
       left,
       y,
       { width: right - left },
@@ -220,7 +220,7 @@ export function buildProofPdf(payload: AskPayload): Promise<Buffer> {
     const right = 555;
     let y = 40;
 
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#5F6F63').text('ONDE FOI O MEU DINHEIRO?', left, y);
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#5F6F63').text('EXTRATO FALADO', left, y);
     y += 18;
     doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Folha de prova', left, y);
     y += 26;

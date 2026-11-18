@@ -376,6 +376,101 @@ function withoutComSaldo(raw: string): { text: string; done: boolean } {
  * quebrar em duas ou tres linhas e o cabecalho do mesmo dia se repete no topo
  * de cada pagina (nao pode reiniciar o dia nem duplicar o saldo).
  */
+export function parseNubankText(text: string): PdfExtract {
+  const source = rawLines(text);
+  if (!source.some((line) => /movimenta/i.test(line)) || !source.some((line) => /total de (entradas|saidas|saídas)/i.test(line))) {
+    return { ...NOTHING };
+  }
+
+  const MONTHS_PT: Record<string, number> = {
+    jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6,
+    jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12,
+  };
+
+  const rows: ParsedRow[] = [];
+  let currentDate: string | null = null;
+  let direction: 'in' | 'out' | null = null;
+  let description: string[] = [];
+
+  const flush = () => {
+    const desc = description.join(' ').replace(/\s+/g, ' ').trim();
+    description = [];
+    // amount is handled separately; this just clears
+    void desc;
+  };
+
+  const amountRe = /^-?[\d.]+,\d{2}$/;
+  const dateRe = /^(\d{2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(\d{4})/i;
+
+  for (const rawLine of source) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // page header / footer / noise
+    if (/extrato gerado|tem alguma duvida|ouvidoria|atendimento 24|valores em r\$|cpf|agencia conta|^movimenta|nubank\.com/i.test(line)) {
+      continue;
+    }
+    if (/^(Elias|•)/.test(line)) continue;
+    if (/^\d{1,2} de \d{1,2} de \d{4}/.test(line)) continue;
+
+    const dateMatch = dateRe.exec(line);
+    if (dateMatch) {
+      // flush pending description without amount (shouldn't happen)
+      description = [];
+      const day = dateMatch[1]!;
+      const mon = MONTHS_PT[dateMatch[2]!.toLowerCase().slice(0, 3)]!;
+      const year = dateMatch[3]!;
+      currentDate = `${year}-${String(mon).padStart(2, '0')}-${day}`;
+      // same line may declare the section
+      if (/total de entradas/i.test(line)) direction = 'in';
+      else if (/total de sa[ií]das/i.test(line)) direction = 'out';
+      continue;
+    }
+
+    if (/^total de entradas/i.test(line)) { direction = 'in'; continue; }
+    if (/^total de sa[ií]das/i.test(line)) { direction = 'out'; continue; }
+
+    // linha com descricao + valor no fim ("Deposito Recebido por Boleto 138,00")
+    const inline = /^(.+?)\s+(-?[\d.]+,\d{2})$/.exec(line);
+    if (inline && !/^total de/i.test(line)) {
+      description.push(inline[1]!.trim());
+      // process amount below
+      const amtLine = inline[2]!;
+      if (currentDate && direction && description.length > 0) {
+        const cents = parseAmountToCents(amtLine);
+        const signed = direction === 'out' ? -Math.abs(cents) : Math.abs(cents);
+        const desc = description.join(' ').replace(/\s+/g, ' ').trim();
+        if (desc.length > 0) rows.push({ postedAt: currentDate, description: desc, amountCents: signed });
+      }
+      description = [];
+      continue;
+    }
+
+    if (amountRe.test(line)) {
+      if (!currentDate || !direction || description.length === 0) {
+        description = [];
+        continue;
+      }
+      const cents = parseAmountToCents(line);
+      const signed = direction === 'out' ? -Math.abs(cents) : Math.abs(cents);
+      const desc = description.join(' ').replace(/\s+/g, ' ').trim();
+      if (desc.length > 0) {
+        rows.push({ postedAt: currentDate, description: desc, amountCents: signed });
+      }
+      description = [];
+      continue;
+    }
+
+    // skip pure summary/total lines that slipped through
+    if (/^total de/i.test(line)) continue;
+
+    description.push(line);
+  }
+
+  if (rows.length === 0) return { ...NOTHING };
+  return { rows, saldoAnteriorCents: null, saldoFinalCents: null, corrections: 0, accountHint: 'nubank' };
+}
+
 export function parsePicPayText(text: string): PdfExtract {
   const source = lines(text);
   if (!source.some((line) => PICPAY_DAY.test(line))) return { ...NOTHING };
@@ -723,8 +818,13 @@ export function parseSantanderExtratoText(text: string): PdfExtract {
 }
 
 /** Lancamentos + saldos de um PDF, seja ele texto, seja imagem (OCR). */
-export async function parsePdfDocument(buffer: Uint8Array): Promise<PdfExtract & { via: 'texto' | 'ocr' }> {
+export async function parsePdfDocument(buffer: Uint8Array): Promise<PdfExtract & { via: 'texto' | 'ocr'; text: string }> {
   const text = await pdfToText(buffer);
+  return { ...(await parsePdfDocumentText(text, buffer)), text };
+}
+
+/** Separado do PDF em si: o texto tambem decide se o arquivo e fatura de cartao. */
+async function parsePdfDocumentText(text: string, buffer: Uint8Array): Promise<PdfExtract & { via: 'texto' | 'ocr' }> {
 
   // celula de saldo conta como extrato reconhecido mesmo sem lancamento no periodo
   const bb = parseBbText(text);
@@ -735,6 +835,9 @@ export async function parsePdfDocument(buffer: Uint8Array): Promise<PdfExtract &
 
   const picpay = parsePicPayText(text);
   if (picpay.rows.length > 0 || picpay.saldoFinalCents !== null) return { ...picpay, via: 'texto' };
+
+  const nubank = parseNubankText(text);
+  if (nubank.rows.length > 0) return { ...nubank, via: 'texto' };
 
   // a versao consolidada vem antes do extrato simples: ela tem a secao
   // "Movimentacao"; a simples, "DETALHE DOS MOVIMENTOS"

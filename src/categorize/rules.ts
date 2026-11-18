@@ -25,10 +25,21 @@ export const RULES: Rule[] = [
   { category: 'Transferências', pattern: /\bpix\b|\bted\b|\bdoc\b|transferencia|cofrinho|dinheiro guardado|dinheiro resgatado/ },
 ];
 
-export function matchRule(text: string): string | null {
+export interface RuleMatch {
+  category: string;
+  /** trecho que casou com a regra, para explicar a classificacao */
+  keyword: string;
+}
+
+export function matchRuleDetail(text: string): RuleMatch | null {
   const haystack = stripAccents(text).toLowerCase();
   for (const rule of RULES) {
-    if (rule.pattern.test(haystack)) return rule.category;
+    const m = rule.pattern.exec(haystack);
+    if (m) return { category: rule.category, keyword: m[0] };
   }
   return null;
+}
+
+export function matchRule(text: string): string | null {
+  return matchRuleDetail(text)?.category ?? null;
 }

@@ -2188,6 +2188,19 @@ code {
     display: none;
   }
 
+  .chips {
+    margin-left: 0;
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
+  .chip {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .ask-foot {
     display: block;
     margin-top: 8px;

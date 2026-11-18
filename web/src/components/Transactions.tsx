@@ -22,7 +22,7 @@ interface TransactionsProps {
 export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize, onToggleInternalTransfer, onToggleRefund, onExplain }: TransactionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [explainId, setExplainId] = useState<string | null>(null);
+  const [menuId, setMenuId] = useState<string | null>(null);
   const [explainText, setExplainText] = useState<string>('');
   const canLoadMore = !allLoaded && totalCount > items.length;
 
@@ -37,8 +37,6 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
   };
 
   const handleExplain = async (id: string) => {
-    if (explainId === id) { setExplainId(null); return; }
-    setExplainId(id);
     setExplainText('carregando…');
     try {
       const reason = onExplain ? await onExplain(id) : null;
@@ -46,6 +44,12 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
     } catch {
       setExplainText('não foi possível explicar');
     }
+  };
+
+  const toggleMenu = (id: string) => {
+    if (menuId === id) { setMenuId(null); return; }
+    setMenuId(id);
+    setExplainText('');
   };
 
   return (
@@ -99,43 +103,48 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                     ))}
                   </select>
                 ) : (
-                  <button
-                    type="button"
-                    className="category-edit"
-                    onClick={() => item.id && setEditingId(item.id)}
-                    title="corrigir categoria"
-                  >
-                    <span className="code">{categoryCode(item.category)}</span> {item.category}
-                  </button>
+                  <div className="category-cell">
+                    <button
+                      type="button"
+                      className="category-edit"
+                      onClick={() => item.id && setEditingId(item.id)}
+                      title="corrigir categoria"
+                    >
+                      <span className="code">{categoryCode(item.category)}</span> {item.category}
+                    </button>
+                    {item.id && (onExplain || onToggleInternalTransfer || onToggleRefund) ? (
+                      <button
+                        type="button"
+                        className="more-button"
+                        onClick={() => toggleMenu(item.id!)}
+                        title="mais ações"
+                        aria-expanded={menuId === item.id}
+                      >
+                        ⋯
+                      </button>
+                    ) : null}
+                    {menuId === item.id ? (
+                      <div className="row-menu" role="menu">
+                        {onExplain ? (
+                          <button type="button" role="menuitem" onClick={() => void handleExplain(item.id!)}>
+                            ? por que essa categoria
+                          </button>
+                        ) : null}
+                        {onToggleInternalTransfer ? (
+                          <button type="button" role="menuitem" onClick={() => { void onToggleInternalTransfer(item.id!, !item.isInternalTransfer); setMenuId(null); }}>
+                            {item.isInternalTransfer ? '✓ ' : ''}transferência interna
+                          </button>
+                        ) : null}
+                        {onToggleRefund ? (
+                          <button type="button" role="menuitem" onClick={() => { void onToggleRefund(item.id!, !item.isRefund); setMenuId(null); }}>
+                            {item.isRefund ? '✓ ' : ''}estorno
+                          </button>
+                        ) : null}
+                        {explainText ? <span className="row-menu-note">{explainText}</span> : null}
+                      </div>
+                    ) : null}
+                  </div>
                 )}
-              </span>
-              <span className="expense-actions">
-                {item.id && onExplain ? (
-                  <button type="button" className="text-button" onClick={() => void handleExplain(item.id!)} title="por que essa categoria?">
-                    ?
-                  </button>
-                ) : null}
-                {item.id && onToggleInternalTransfer ? (
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => void onToggleInternalTransfer(item.id!, !item.isInternalTransfer)}
-                    title="marcar como transferência interna"
-                  >
-                    ↔
-                  </button>
-                ) : null}
-                {item.id && onToggleRefund ? (
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => void onToggleRefund(item.id!, !item.isRefund)}
-                    title="marcar como estorno"
-                  >
-                    ↩
-                  </button>
-                ) : null}
-                {explainId === item.id ? <span className="section-note">{explainText}</span> : null}
               </span>
               <span className={`expense-value ${item.amountCents > 0 ? 'is-in' : ''}`}>
                 {moneySigned(item.amountCents)}

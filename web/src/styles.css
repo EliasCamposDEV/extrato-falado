@@ -1379,12 +1379,69 @@ code {
   white-space: nowrap;
 }
 
-.expense-actions {
-  display: flex;
+.category-cell {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  justify-content: flex-end;
+  position: relative;
+}
+
+.more-button {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--sage-deep);
+  font-family: var(--mono);
   font-size: 11px;
+  line-height: 1;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+
+.more-button:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.row-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--page);
+  border: 1px solid var(--rule);
+  box-shadow: 0 6px 18px rgba(20, 18, 14, 0.12);
+}
+
+.row-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--ink);
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.row-menu button:hover {
+  background: var(--cream);
+}
+
+.row-menu-note {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--sage-deep);
+  border-top: 1px dotted var(--rule);
 }
 
 .tag {

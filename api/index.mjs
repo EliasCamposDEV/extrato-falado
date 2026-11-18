@@ -36,7 +36,7 @@ async function ocrImages(images) {
     })();
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error("OCR demorou mais de 60 s: imagem ilegivel ou PDF grande demais")),
+        () => reject(new Error(`OCR demorou mais de ${Math.round(OCR_TIMEOUT_MS / 1e3)} s: imagem ilegivel ou PDF grande demais`)),
         OCR_TIMEOUT_MS
       );
     });
@@ -52,7 +52,7 @@ var init_ocr = __esm({
     "use strict";
     MAX_OCR_IMAGES = 4;
     MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-    OCR_TIMEOUT_MS = 6e4;
+    OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS) || 45e3;
   }
 });
 
@@ -2826,6 +2826,28 @@ function authorized(req) {
   if (colon < 0) return false;
   return safeEqual(decoded.slice(0, colon), AUTH_USER) && safeEqual(decoded.slice(colon + 1), AUTH_PASSWORD);
 }
+var OWNER_KEY = (process.env.OWNER_KEY ?? "").trim();
+var OWNER_ENABLED = OWNER_KEY.length >= 8;
+var OWNER_COOKIE = "extrato_owner";
+var OWNER_TOKEN = OWNER_ENABLED ? createHash2("sha256").update(OWNER_KEY).digest("hex") : "";
+function cookieValue(req, name) {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const index = part.indexOf("=");
+    if (index > 0 && part.slice(0, index).trim() === name) {
+      return decodeURIComponent(part.slice(index + 1).trim());
+    }
+  }
+  return "";
+}
+function isOwner(req) {
+  if (!OWNER_ENABLED) return true;
+  return safeEqual(cookieValue(req, OWNER_COOKIE), OWNER_TOKEN);
+}
+var READ_ONLY_POST = /* @__PURE__ */ new Set(["/api/ask", "/api/export/proof", "/api/spec-check"]);
+function isMutation(method, pathname) {
+  if (!method || method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
+  return !READ_ONLY_POST.has(pathname);
+}
 var SECURITY_HEADERS = {
   "content-security-policy": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; connect-src 'self'",
   "x-content-type-options": "nosniff",
@@ -3071,6 +3093,22 @@ async function handler(req, res) {
       throw new HttpError(403, "origem nao permitida");
     }
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const key = url.searchParams.get("chave");
+    if (OWNER_ENABLED && key !== null) {
+      if (!safeEqual(key, OWNER_KEY)) throw new HttpError(403, "chave do dono invalida");
+      url.searchParams.delete("chave");
+      const proto = String(req.headers["x-forwarded-proto"] ?? "").toLowerCase();
+      res.setHeader(
+        "set-cookie",
+        `${OWNER_COOKIE}=${OWNER_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${proto === "https" ? "; Secure" : ""}`
+      );
+      res.writeHead(303, { location: `${url.pathname}${url.search}` });
+      res.end();
+      return;
+    }
+    if (OWNER_ENABLED && !isOwner(req) && isMutation(req.method, url.pathname)) {
+      throw new HttpError(403, "demo somente leitura: importar e editar ficam no modo dono (abra o link com ?chave=...)");
+    }
     if (!authorized(req) && url.pathname !== "/api/health") {
       res.setHeader("www-authenticate", 'Basic realm="extrato", charset="UTF-8"');
       res.writeHead(401, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
@@ -3079,8 +3117,9 @@ async function handler(req, res) {
     }
     if (url.pathname === "/api/health") {
       const limits = { maxUploadBytes: EPHEMERAL ? 3 * 1024 * 1024 : null };
-      if (AUTH_ENABLED) return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits });
-      return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits, planner: planner.name, transactions: countTransactions(db), sources: countBySource(db), accounts: distinctAccounts(db) });
+      const access = { ownerMode: OWNER_ENABLED, readOnly: OWNER_ENABLED && !isOwner(req) };
+      if (AUTH_ENABLED) return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits, ...access });
+      return sendJson(res, 200, { ok: true, ephemeral: EPHEMERAL, limits, ...access, planner: planner.name, transactions: countTransactions(db), sources: countBySource(db), accounts: distinctAccounts(db) });
     }
     if (url.pathname === "/api/summary" && req.method === "GET") {
       const source = url.searchParams.get("source") ?? void 0;

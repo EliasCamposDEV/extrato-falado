@@ -17,9 +17,11 @@ interface TransactionsProps {
   onToggleInternalTransfer?: (id: string, value: boolean) => Promise<void>;
   onToggleRefund?: (id: string, value: boolean) => Promise<void>;
   onExplain?: (id: string) => Promise<string | null>;
+  /** demo publica: categoria so leitura, sem menu de edicao */
+  readOnly?: boolean;
 }
 
-export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize, onToggleInternalTransfer, onToggleRefund, onExplain }: TransactionsProps) {
+export function Transactions({ items, totalCount, allLoaded, loadingAll, periodLabel, categories, notice, onLoadAll, onRecategorize, onToggleInternalTransfer, onToggleRefund, onExplain, readOnly }: TransactionsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -98,7 +100,7 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                 {item.isRefund ? <small className="tag">estorno</small> : null}
               </span>
               <span className="expense-category">
-                {editingId === item.id && item.id ? (
+                {editingId === item.id && item.id && !readOnly ? (
                   <select
                     autoFocus
                     aria-label="categoria do lançamento"
@@ -119,6 +121,10 @@ export function Transactions({ items, totalCount, allLoaded, loadingAll, periodL
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
+                ) : readOnly ? (
+                  <span className="category-cell">
+                    <span className="code">{categoryCode(item.category)}</span> {item.category}
+                  </span>
                 ) : (
                   <div className="category-cell">
                     <button

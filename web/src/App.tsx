@@ -87,6 +87,9 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('consulta');
   const [ephemeral, setEphemeral] = useState(false);
   const [maxUploadBytes, setMaxUploadBytes] = useState<number | null>(null);
+  // demo publica com OWNER_KEY: visitante comum le, mas nao importa/edita
+  const [readOnly, setReadOnly] = useState(false);
+  const [ownerMode, setOwnerMode] = useState(false);
 
   const nextEntry = useRef(1);
   const booted = useRef(false);
@@ -242,6 +245,8 @@ export default function App() {
         if (!alive) return;
         setEphemeral(Boolean(health.ephemeral));
         setMaxUploadBytes(health.limits?.maxUploadBytes ?? null);
+        setOwnerMode(Boolean(health.ownerMode));
+        setReadOnly(Boolean(health.readOnly));
       })
       .catch(() => {
         // health indisponível não impede o uso da tela
@@ -416,7 +421,12 @@ export default function App() {
       setSource('imported');
       const base = await getSummary(undefined, 'imported', account || undefined, includeInternal);
       setMonths(base.months);
-      await loadMonth(pickMonth(base.months), { source: 'imported', account, includeInternal });
+      // o mês do arquivo vence o palpite: importar o extrato de novembro tem que
+      // abrir novembro, mesmo quando o mês corrente é outro (ou o arquivo é antigo)
+      const target = imported.month && base.months.includes(imported.month)
+        ? imported.month
+        : pickMonth(base.months);
+      await loadMonth(target, { source: 'imported', account, includeInternal });
     } catch (importError) {
       setImportState({ kind: 'error', message: messageOf(importError) });
     } finally {
@@ -450,14 +460,18 @@ export default function App() {
             <a href="#como-funciona" aria-current={activeSection === "como-funciona" ? "page" : undefined} onClick={() => setActiveSection("como-funciona")}>
               Como funciona
             </a>
-            <button
-              type="button"
-              className="import"
-              onClick={() => fileRef.current?.click()}
-              disabled={importing}
-            >
-              {importing ? 'Lendo…' : 'Importar extrato'}
-            </button>
+            {readOnly ? (
+              <span className="cover-note" role="note">demo · somente leitura</span>
+            ) : (
+              <button
+                type="button"
+                className="import"
+                onClick={() => fileRef.current?.click()}
+                disabled={importing}
+              >
+                {importing ? 'Lendo…' : 'Importar extrato'}
+              </button>
+            )}
           </nav>
         </div>
       </header>
@@ -499,7 +513,7 @@ export default function App() {
                 </p>
                 <p className="slip-text">
                   {importState.kind === 'ok'
-                    ? `${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.account ? ` · conta ${importState.result.account}` : ''}${importState.result.invoiceMonth ? ` · fatura ${importState.result.invoiceMonth}` : ''}${importState.result.installments ? ` · ${countLabel(importState.result.installments, 'parcela', 'parcelas')}` : ''}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} lançamento(s) aparece(m) em mais de uma conta` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
+                    ? `${importState.result.read === 0 && importState.result.reportedBalanceCents != null ? 'o extrato não tem lançamentos neste período · ' : ''}${importState.result.format.toUpperCase()}${importState.result.via === 'ocr' ? ` (OCR${importState.result.ocrCorrections ? `, ${importState.result.ocrCorrections} valor(es) pelo saldo` : ''})` : ''} · ${countLabel(importState.result.read, 'linha lida', 'linhas lidas')} · ${countLabel(importState.result.inserted, 'nova', 'novas')} · ${countLabel(importState.result.duplicates, 'já existia', 'já existiam')}${importState.result.account ? ` · conta ${importState.result.account}` : ''}${importState.result.invoiceMonth ? ` · fatura ${importState.result.invoiceMonth}` : ''}${importState.result.installments ? ` · ${countLabel(importState.result.installments, 'parcela', 'parcelas')}` : ''}${importState.result.reportedBalanceCents != null ? ` · saldo informado ${importState.result.reportedBalanceCents / 100}` : ''}${importState.result.crossAccountDuplicates ? ` · ${importState.result.crossAccountDuplicates} lançamento(s) aparece(m) em mais de uma conta` : ''}${importState.result.transfers ? ` · ${importState.result.transfers} transferência(s) interna(s) detectada(s)` : ''}${importState.result.balanceMessage ? ` · ${importState.result.balanceMessage}` : ''}`
                     : importState.message}
                 </p>
               </div>
@@ -524,31 +538,35 @@ export default function App() {
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
-              <label htmlFor="import-account" title="vale para o próximo arquivo importado; vazio = detectar pelo arquivo">
-                conta do arquivo
-              </label>
-              <input
-                id="import-account"
-                type="text"
-                list="account-options"
-                placeholder="detectar"
-                value={importAccount}
-                onChange={(e) => setImportAccount(e.target.value)}
-              />
-              <datalist id="account-options">
-                {(summary?.accounts ?? []).map((a) => (
-                  <option key={a} value={a} />
-                ))}
-              </datalist>
-              <label htmlFor="import-invoice" title="mês da fatura do próximo arquivo; vazio = detectar pelo vencimento">
-                fatura
-              </label>
-              <input
-                id="import-invoice"
-                type="month"
-                value={importInvoice}
-                onChange={(e) => setImportInvoice(e.target.value)}
-              />
+              {!readOnly ? (
+                <>
+                  <label htmlFor="import-account" title="vale para o próximo arquivo importado; vazio = detectar pelo arquivo">
+                    conta do arquivo
+                  </label>
+                  <input
+                    id="import-account"
+                    type="text"
+                    list="account-options"
+                    placeholder="detectar"
+                    value={importAccount}
+                    onChange={(e) => setImportAccount(e.target.value)}
+                  />
+                  <datalist id="account-options">
+                    {(summary?.accounts ?? []).map((a) => (
+                      <option key={a} value={a} />
+                    ))}
+                  </datalist>
+                  <label htmlFor="import-invoice" title="mês da fatura do próximo arquivo; vazio = detectar pelo vencimento">
+                    fatura
+                  </label>
+                  <input
+                    id="import-invoice"
+                    type="month"
+                    value={importInvoice}
+                    onChange={(e) => setImportInvoice(e.target.value)}
+                  />
+                </>
+              ) : null}
               <label htmlFor="from-input">de</label>
               <input
                 id="from-input"
@@ -594,14 +612,22 @@ export default function App() {
                 const query = params.toString();
                 return '/api/export/pdf' + (query ? '?' + query : '');
               })()} target="_blank" rel="noopener">exportar PDF</a>
-              {summary && summary.sources && summary.sources.imported ? (
+              {!readOnly && summary && summary.sources && summary.sources.imported ? (
                 <button type="button" className="source-clear" onClick={async () => { try { const res = await resetData("imported"); setImportState({ kind: "ok", result: { read: res.removed, inserted: 0, duplicates: 0, format: "csv", month: res.summary.month, summary: res.summary } as any }); setSource("all"); setMonths(res.summary.months); await loadMonth(pickMonth(res.summary.months)); } catch (e) { setImportState({ kind: "error", message: e instanceof Error ? e.message : "erro" }); } }}>
                   limpar importados ({summary.sources.imported})
                 </button>
               ) : null}
-              {ephemeral ? (
+              {readOnly ? (
+                <p className="demo-note" role="note">
+                  demo pública: dados de exemplo, sem importar nem editar. A importação fica no modo dono.
+                </p>
+              ) : ephemeral ? (
                 <p className="demo-note" role="note">
                   demo pública: o que você importar fica só nesta instância e some depois de um tempo.
+                </p>
+              ) : ownerMode ? (
+                <p className="demo-note" role="note">
+                  modo dono: importações e edições valem nesta instância.
                 </p>
               ) : null}
             </div>
@@ -669,7 +695,7 @@ export default function App() {
                   <span className="budget-numbers">
                     {money(b.spentCents)} / {money(b.limitCents)} ({b.pct}%)
                   </span>
-                  {!range ? (
+                  {!range && !readOnly ? (
                     <button
                       type="button"
                       className="budget-remove"
@@ -685,7 +711,9 @@ export default function App() {
                   ) : null}
                 </div>
               ))}
-              {range ? (
+              {readOnly ? (
+                <p className="section-note">demo somente leitura: orçamento editável fica no modo dono.</p>
+              ) : range ? (
                 <p className="section-note">orçamento é mensal: escolha um mês para editar o limite.</p>
               ) : (
                 <div className="budget-form">
@@ -737,6 +765,7 @@ export default function App() {
             periodLabel={range ? 'período' : 'mês'}
             categories={[...new Set([...(summary?.allCategories ?? []), 'Renda', 'Moradia', 'Supermercado', 'Transporte', 'Alimentação', 'Saúde', 'Assinaturas', 'Lazer', 'Compras', 'Bem-estar', 'Tarifas', 'Saques', 'Transferências', 'Outros'])]}
             notice={recatMsg}
+            readOnly={readOnly}
             onLoadAll={() => void loadAll()}
             onRecategorize={async (id, category, applyAll) => {
               const res = await recategorize(id, category, applyAll);

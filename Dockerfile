@@ -23,8 +23,12 @@ COPY src ./src
 COPY tsconfig.json ./
 COPY data/sample-extrato.csv ./data/sample-extrato.csv
 
-# /data guarda extrato.db e o traineddata do OCR (baixado no primeiro PDF-imagem)
-RUN mkdir -p /data && chown -R node:node /data
+# OCR: traineddata baixado no build (o deploy nao gasta o primeiro import
+# baixando modelo) e cache em diretorio gravavel pelo usuario node.
+ENV OCR_CACHE_DIR=/app/data/ocr
+RUN mkdir -p /app/data/ocr /data \
+ && node -e "const {writeFileSync}=require('node:fs');const {gunzipSync}=require('node:zlib');fetch('https://tessdata.projectnaptha.com/4.0.0_fast/por.traineddata.gz').then(r=>{if(!r.ok)throw new Error('traineddata '+r.status);return r.arrayBuffer()}).then(b=>writeFileSync('/app/data/ocr/por.traineddata',gunzipSync(Buffer.from(b))))" \
+ && chown -R node:node /app/data/ocr /data
 USER node
 
 EXPOSE 8787

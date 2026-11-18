@@ -188,14 +188,19 @@ docker run -d --name extrato -p 8787:8787 \
 |---|---|
 | `HOST=0.0.0.0` | dentro do container, o proxy não alcança `127.0.0.1` |
 | `PUBLIC_HOSTS=app.exemplo.com` | allowlist do Host/Origin público; sem ela a API recusa o domínio do deploy (a proteção contra DNS rebinding continua valendo) |
-| `APP_PASSWORD` | liga o HTTP Basic (usuário `extrato`). `/api/health` fica aberto, mas sem detalhes. **Sem senha, qualquer visitante lê o extrato** |
+| `OWNER_KEY` | liga o **modo dono**: o site fica somente leitura para visitantes; abrir `https://.../?chave=<OWNER_KEY>` uma vez troca a chave por um cookie e libera importar/editar. Sem ela, todo mundo escreve (uso local) |
+| `APP_PASSWORD` | alternativa de HTTP Basic para uma instância 100% privada (usuário `extrato`). `/api/health` fica aberto, mas sem detalhes |
 | `EXTRATO_DB` | caminho do banco (no container, `/data/extrato.db`). Monte o volume nesse diretório ou o banco recomeça da amostra a cada deploy |
 
-No **Render**, o `render.yaml` é um Blueprint: serviço Docker, health check em `/api/health`, disco de 1 GB em `/data` e `APP_PASSWORD` pedida no painel (`sync: false`). Disco persistente exige plano pago (starter); no plano free a demo funciona, mas o banco é recriado a cada deploy. Uma instância só: SQLite não escala horizontalmente, e para um extrato pessoal não precisa.
+No **Render**, o `render.yaml` é um Blueprint: serviço Docker, health check em `/api/health` e `OWNER_KEY` pedida no painel (`sync: false`). No plano **free** não há disco: a importação funciona durante a sessão e volta para a amostra quando a instância dorme (15 min parada) ou é redeployada. Para persistir de verdade, troque `plan: free` por `starter` e descomente o bloco `disk` (1 GB em `/data`). Uma instância só: SQLite não escala horizontalmente, e para um extrato pessoal não precisa.
+
+O Docker baixa o traineddata do OCR no build (`4.0.0_fast`), então o primeiro PDF-imagem não gasta tempo baixando modelo em runtime.
 
 ### Vercel (demo)
 
 A Vercel serve a UI estática (`web/dist`) e a API como uma função Node (`api/index.mjs`, bundle gerado por `npm run build:api`). O bundle é versionado porque a Vercel valida o bloco `functions` do `vercel.json` **antes** de rodar o `buildCommand`; o build regenera o arquivo a partir de `src/`. Função serverless não tem disco persistente, então o banco vai para `/tmp`: a demo sempre abre semeada com a amostra, mas **o que você importar vive só naquela instância** e some quando ela recicla. A própria tela avisa (`/api/health` devolve `ephemeral: true`).
+
+Por isso a Vercel serve como **vitrine somente leitura**: defina `OWNER_KEY` nas envs do projeto (e não compartilhe) para que ninguém importe ali; a importação de verdade fica no Render ou local. Sem `OWNER_KEY`, qualquer visitante escreve numa instância efêmera.
 
 ```bash
 npx vercel        # preview
@@ -210,7 +215,17 @@ npx vercel --prod # produção
 - `PUBLIC_HOSTS` é preenchido sozinho com `VERCEL_URL`; `APP_PASSWORD` continua opcional.
 - Precisa de persistência real? Use o container (Docker/Render) ou troque o SQLite por um banco remoto.
 
-O `render.yaml` continua sendo o caminho para uso pessoal de verdade: lá o extrato importado sobrevive a reinícios.
+O `render.yaml` é o caminho recomendado para a demo pública: uma instância só, modo dono por chave e, no plano pago, disco persistente.
+
+## Modo dono
+
+Com `OWNER_KEY` definida, todo `POST`/`PATCH`/`DELETE` que grava (importar, reclassificar, orçamento, reset) responde `403` para quem não tem o cookie. Para assumir o controle:
+
+```
+https://extrato-falado.onrender.com/?chave=SUA_CHAVE
+```
+
+A chave sai da URL, vira cookie `HttpOnly` de 30 dias e a página recarrega. `/api/health` informa `ownerMode` e `readOnly`; a UI esconde importação e edição quando `readOnly` é `true`.
 
 ## Saída real
 

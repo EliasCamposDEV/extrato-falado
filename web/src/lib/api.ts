@@ -49,6 +49,9 @@ export function getHealth(): Promise<{
   ok: boolean;
   ephemeral?: boolean;
   limits?: { maxUploadBytes: number | null };
+  /** true quando o deploy tem OWNER_KEY: visitante comum nao escreve */
+  ownerMode?: boolean;
+  readOnly?: boolean;
 }> {
   return request('/api/health');
 }

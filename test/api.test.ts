@@ -10,18 +10,23 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PORT = Number(process.env.API_TEST_PORT ?? 8799);
 const BASE = `http://127.0.0.1:${PORT}`;
+const OWNER_PORT = PORT + 1;
+const OWNER_BASE = `http://127.0.0.1:${OWNER_PORT}`;
+const OWNER_KEY = 'chave-de-teste-123';
 
 let server: ChildProcess | null = null;
+let ownerServer: ChildProcess | null = null;
 let dataDir = '';
 let serverErrors = '';
 
 interface Reply {
   status: number;
   body: any;
+  headers: Headers;
 }
 
-async function call(path: string, init?: RequestInit): Promise<Reply> {
-  const response = await fetch(BASE + path, init);
+async function callAt(base: string, path: string, init?: RequestInit): Promise<Reply> {
+  const response = await fetch(base + path, init);
   const text = await response.text();
   let body: any = text;
   try {
@@ -29,7 +34,16 @@ async function call(path: string, init?: RequestInit): Promise<Reply> {
   } catch {
     // resposta não-JSON (PDF, texto): fica como string
   }
-  return { status: response.status, body };
+  return { status: response.status, body, headers: response.headers };
+}
+
+function call(path: string, init?: RequestInit): Promise<Reply> {
+  return callAt(BASE, path, init);
+}
+
+/** Servidor com OWNER_KEY: visitante comum é somente leitura. */
+function ownerCall(path: string, init?: RequestInit): Promise<Reply> {
+  return callAt(OWNER_BASE, path, init);
 }
 
 function post(path: string, payload: unknown): Promise<Reply> {
@@ -70,7 +84,7 @@ function rawCall(path: string, headers: Record<string, string>): Promise<Reply> 
           } catch {
             // resposta não-JSON fica como string
           }
-          resolve({ status: response.statusCode ?? 0, body });
+          resolve({ status: response.statusCode ?? 0, body, headers: new Headers(response.headers as Record<string, string>) });
         });
       },
     );
@@ -96,37 +110,51 @@ async function pdfText(path: string): Promise<string> {
 
 before(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'ofmd-api-'));
-  server = spawn(
-    process.execPath,
-    ['--experimental-strip-types', '--no-warnings', join(ROOT, 'src', 'server.ts')],
-    {
-      cwd: ROOT,
-      env: { ...process.env, PORT: String(PORT), EXTRATO_DB: join(dataDir, 'api-test.db') },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    },
-  );
+  const spawnServer = (port: number, db: string, extraEnv: Record<string, string> = {}) =>
+    spawn(
+      process.execPath,
+      ['--experimental-strip-types', '--no-warnings', join(ROOT, 'src', 'server.ts')],
+      {
+        cwd: ROOT,
+        env: { ...process.env, PORT: String(port), EXTRATO_DB: join(dataDir, db), ...extraEnv },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    );
+
+  server = spawnServer(PORT, 'api-test.db');
   server.stderr?.on('data', (chunk: Buffer) => {
     serverErrors += chunk.toString();
   });
+  ownerServer = spawnServer(OWNER_PORT, 'owner-test.db', { OWNER_KEY });
+  ownerServer.stderr?.on('data', (chunk: Buffer) => {
+    serverErrors += chunk.toString();
+  });
 
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      const response = await fetch(`${BASE}/api/health`);
-      if (response.ok) return;
-    } catch {
-      // ainda subindo
+  for (const base of [BASE, OWNER_BASE]) {
+    let up = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try {
+        const response = await fetch(`${base}/api/health`);
+        if (response.ok) {
+          up = true;
+          break;
+        }
+      } catch {
+        // ainda subindo
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!up) throw new Error(`a API não respondeu em 10s (${base}):\n${serverErrors}`);
   }
-  throw new Error(`a API não respondeu em 10s:\n${serverErrors}`);
 });
 
 after(async () => {
   // no Windows o arquivo do SQLite continua travado até o processo morrer de fato
-  if (server) {
+  for (const child of [server, ownerServer]) {
+    if (!child) continue;
     await new Promise<void>((resolve) => {
-      server!.once('exit', () => resolve());
-      server!.kill();
+      child.once('exit', () => resolve());
+      child.kill();
       setTimeout(resolve, 2000);
     });
   }
@@ -666,4 +694,84 @@ test('api: fatura de cartão grava parcelamento e aparece em /api/invoices', asy
 
   const bad = await call('/api/summary?from=2026-09-01&to=2026-09-30&invoice=31/31');
   assert.equal(bad.status, 400);
+});
+
+// --- modo dono: demo publica somente leitura ligada por OWNER_KEY ---
+
+test('api: com OWNER_KEY o health marca demo somente leitura', async () => {
+  const { status, body } = await ownerCall('/api/health');
+  assert.equal(status, 200);
+  assert.equal(body.ownerMode, true);
+  assert.equal(body.readOnly, true);
+  assert.ok(body.transactions > 0, 'a amostra deveria ter sido semeada');
+
+  // leitura continua aberta para o visitante
+  const summary = await ownerCall('/api/summary?month=2026-08');
+  assert.equal(summary.status, 200);
+  assert.ok(summary.body.count > 0);
+});
+
+test('api: visitante sem cookie nao importa nem edita', async () => {
+  const imported = await ownerCall('/api/import', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ filename: 'x.csv', content: 'data;descricao;valor\n01/08/2026;TESTE;-10,00' }),
+  });
+  assert.equal(imported.status, 403);
+  assert.match(String(imported.body.error), /somente leitura/);
+
+  const patched = await ownerCall('/api/transactions/qualquer', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ category: 'Outros' }),
+  });
+  assert.equal(patched.status, 403);
+
+  // consulta (POST que so le) continua liberada
+  const asked = await ownerCall('/api/ask', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ question: 'quanto gastei em agosto de 2026' }),
+  });
+  assert.equal(asked.status, 200);
+});
+
+test('api: chave errada nao entra e chave certa vira cookie', async () => {
+  const wrong = await ownerCall(`/?chave=chave-errada`, { redirect: 'manual' });
+  assert.equal(wrong.status, 403);
+
+  const right = await ownerCall(`/?chave=${OWNER_KEY}`, { redirect: 'manual' });
+  assert.equal(right.status, 303);
+  assert.equal(right.headers.get('location'), '/');
+
+  const cookies = right.headers.getSetCookie?.() ?? [right.headers.get('set-cookie') ?? ''];
+  const cookie = cookies.find((value) => value.startsWith('extrato_owner=')) ?? '';
+  assert.match(cookie, /^extrato_owner=[a-f0-9]{64};/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Max-Age=2592000/);
+
+  // a chave sai da URL: o Location nao carrega o segredo
+  assert.doesNotMatch(String(right.headers.get('location')), new RegExp(OWNER_KEY));
+});
+
+test('api: com o cookie do dono a escrita e liberada', async () => {
+  const login = await ownerCall(`/?chave=${OWNER_KEY}`, { redirect: 'manual' });
+  const raw = login.headers.getSetCookie?.() ?? [login.headers.get('set-cookie') ?? ''];
+  const cookie = (raw.find((value) => value.startsWith('extrato_owner=')) ?? '').split(';')[0];
+  assert.ok(cookie, 'deveria ter recebido o cookie do dono');
+
+  const health = await ownerCall('/api/health', { headers: { cookie } });
+  assert.equal(health.body.readOnly, false);
+
+  const imported = await ownerCall('/api/import', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({
+      filename: 'dono.csv',
+      content: 'data;descricao;valor\n01/08/2026;TESTE DO DONO;-10,00',
+    }),
+  });
+  assert.equal(imported.status, 200);
+  assert.equal(imported.body.read, 1);
+  assert.equal(imported.body.inserted, 1);
 });

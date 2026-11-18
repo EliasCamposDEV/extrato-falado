@@ -6,7 +6,9 @@ import { createWorker } from 'tesseract.js';
 // de um PDF qualquer nem uma imagem gigante que so gasta CPU
 const MAX_OCR_IMAGES = 4;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const OCR_TIMEOUT_MS = 60_000;
+// abaixo do teto de 60 s da funcao serverless: erra com mensagem em vez de 504.
+// O Docker baixa o traineddata no build, entao OCR local/deploy leva ~5 s por imagem.
+const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS) || 45_000;
 
 /**
  * Extrato que e so imagem (a Caixa exporta assim: um print dentro do PDF) nao
@@ -41,7 +43,7 @@ export async function ocrImages(images: Uint8Array[]): Promise<string> {
 
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error('OCR demorou mais de 60 s: imagem ilegivel ou PDF grande demais')),
+        () => reject(new Error(`OCR demorou mais de ${Math.round(OCR_TIMEOUT_MS / 1000)} s: imagem ilegivel ou PDF grande demais`)),
         OCR_TIMEOUT_MS,
       );
     });

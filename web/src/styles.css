@@ -1380,22 +1380,25 @@ code {
 }
 
 .category-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   position: relative;
+  padding-right: 34px;
 }
 
 .more-button {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
   border: 1px solid var(--rule);
-  background: transparent;
+  background: var(--page);
   color: var(--sage-deep);
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1;
-  padding: 4px 8px;
-  min-width: 28px;
-  min-height: 28px;
+  padding: 4px 6px;
+  min-width: 24px;
+  min-height: 24px;
   cursor: pointer;
 }
 
@@ -1407,7 +1410,7 @@ code {
 .row-menu {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -1698,6 +1701,10 @@ code {
   cursor: pointer;
   color: var(--cover);
   font: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .category-edit:hover { text-decoration: underline; }
 .compare {

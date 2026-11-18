@@ -96,6 +96,7 @@ export interface MonthSummary {
   inCents: number;
   count: number;
   categories: { label: string; totalCents: number; count: number }[];
+  allCategories?: string[];
   months: string[];
   totalTransactions: number;
   planner: string;

@@ -164,6 +164,10 @@ export function summary(db: Db, { from, to }: Period, plannerName: string, sourc
     )
     .all(...params) as { label: string; total_cents: number; n: number }[];
 
+  const allCategories = (db
+    .prepare(`SELECT DISTINCT category AS label FROM transactions WHERE ${where} ORDER BY category`)
+    .all(...params) as { label: string }[]).map((row) => row.label);
+
   const monthsWhere = [
     source && 'source = ?',
     account && 'account = ?',
@@ -185,6 +189,7 @@ export function summary(db: Db, { from, to }: Period, plannerName: string, sourc
       totalCents: Number(row.total_cents),
       count: Number(row.n),
     })),
+    allCategories,
     months,
     totalTransactions: source ? (source === 'imported' ? countBySource(db).imported : countBySource(db).sample) : countTransactions(db),
     planner: plannerName,

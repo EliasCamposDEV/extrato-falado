@@ -705,7 +705,7 @@ export default function App() {
             allLoaded={allLoaded}
             loadingAll={loadingAll}
             periodLabel={range ? 'período' : 'mês'}
-            categories={(summary?.categories ?? []).map((c) => c.label)}
+            categories={[...new Set([...(summary?.allCategories ?? []), 'Renda'])]}
             notice={recatMsg}
             onLoadAll={() => void loadAll()}
             onRecategorize={async (id, category, applyAll) => {

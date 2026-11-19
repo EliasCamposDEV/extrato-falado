@@ -116,7 +116,9 @@ before(async () => {
       ['--experimental-strip-types', '--no-warnings', join(ROOT, 'src', 'server.ts')],
       {
         cwd: ROOT,
-        env: { ...process.env, PORT: String(port), EXTRATO_DB: join(dataDir, db), ...extraEnv },
+        // planner fixo: o .env local pode apontar para o modelo, e aí o teste
+        // deixaria de ser determinístico (e passaria a depender de rede).
+        env: { ...process.env, PLANNER: 'heuristic', PORT: String(port), EXTRATO_DB: join(dataDir, db), ...extraEnv },
         stdio: ['ignore', 'ignore', 'pipe'],
       },
     );

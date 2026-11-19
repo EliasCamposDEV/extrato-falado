@@ -21,6 +21,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/web/dist ./web/dist
 COPY src ./src
 COPY tsconfig.json ./
+COPY data/labels.json ./data/labels.json
 COPY data/sample-extrato.csv ./data/sample-extrato.csv
 
 # OCR: traineddata baixado no build (o deploy nao gasta o primeiro import

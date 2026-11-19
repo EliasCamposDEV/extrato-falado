@@ -153,7 +153,7 @@ npm run ask -- "quanto gastei em outubro"
 npm run demo                            # 5 perguntas de demonstração
 npm run eval                            # mede planner e resposta (heurístico)
 npm run eval -- --llm                   # mede o planner configurado (usa a rede)
-npm test                                # 75 testes (44 de unidade + 31 de API)
+npm test                                # 79 testes (44 de unidade + 35 de API)
 npm run typecheck
 ```
 
@@ -285,15 +285,6 @@ Para medir o planner LLM: copie `.env.example` para `.env`, defina `PLANNER=open
 
 ## Próximos passos
 
-- [x] UI web (Vite + React) com o SQL visível sobre a resposta
-- [x] orçamento por categoria com alerta
-- [x] transferência interna detectada automaticamente
-- [x] estorno e marcação manual de transferência (PATCH por lançamento)
-- [x] "por que essa categoria?" com a regra que casou (endpoint `/api/transactions/:id/explain`)
-- [x] fatura de cartão (parcelamento, vencimento, compras internacionais como lançamentos normais)
-- [x] deploy em container com disco persistente (Dockerfile + Render Blueprint)
-- [ ] "por que essa categoria?" mostrando a regra que casou
-- [ ] estorno e marcação manual de transferência
 - [ ] OFX reais de Itaú / Inter + Open Finance (Nubank já suportado em PDF)
 
 ---

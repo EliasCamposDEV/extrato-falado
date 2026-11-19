@@ -14,3 +14,7 @@ data/ocr/
 # OCR traineddata (baixado em runtime)
 *.traineddata
 
+
+# capturas de tela de testes
+mobile.png
+*.png.bak

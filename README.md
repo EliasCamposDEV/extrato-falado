@@ -225,7 +225,7 @@ Com `OWNER_KEY` definida, todo `POST`/`PATCH`/`DELETE` que grava (importar, recl
 https://extrato-falado.onrender.com/?chave=SUA_CHAVE
 ```
 
-A chave sai da URL, vira cookie `HttpOnly` de 30 dias e a página recarrega. `/api/health` informa `ownerMode` e `readOnly`; a UI esconde importação e edição quando `readOnly` é `true`.
+A chave sai da URL, vira cookie `HttpOnly` de 30 dias e a página recarrega. Vale onde o próprio app serve a UI (Render, `npm start`); na Vercel, que publica o `web/dist` como site estático, `/?chave=` não chega à função — lá o modo é só leitura por desenho. `/api/health` informa `ownerMode` e `readOnly`; a UI esconde importação e edição quando `readOnly` é `true`.
 
 ## Saída real
 

@@ -102,7 +102,7 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 | `web/src/` | React: caderneta, carimbo do período, folha de prova e recibo de importação |
 | `web/src/styles.css` | sistema visual: paleta, tipografia, responsivo e movimento |
 | `test/core.test.ts` | 44 testes de unidade (parsing CSV/OFX/PDF, validação, injeção de SQL, agregados, dédupe, contas, fatura, guard, continuação, ponta a ponta) |
-| `test/api.test.ts` | 31 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, comparação (mês e período livre), orçamento (mês e período rateado), reclassificação (inclusive o override que o import passa a usar), import, fatura, reset, PDF e as guardas de segurança |
+| `test/api.test.ts` | 35 testes de API: sobe o servidor com banco temporário e cobre saúde, resumo, período livre, consulta, comparação (mês e período livre), orçamento (mês e período rateado), reclassificação (inclusive o override que o import passa a usar), import, fatura, reset, PDF e as guardas de segurança |
 
 ### Rotas da API
 
@@ -290,3 +290,5 @@ Para medir o planner LLM: copie `.env.example` para `.env`, defina `PLANNER=open
 ---
 
 Dados de exemplo: `data/sample-extrato.csv` (fictício, 61 lançamentos de ago–nov/2026).
+
+Licença: [MIT](LICENSE).

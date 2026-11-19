@@ -2,6 +2,7 @@
   "name": "extrato-falado",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": { "node": "22.x" },
   "description": "Converse com seu extrato bancario sem abrir mao da precisao dos numeros.",

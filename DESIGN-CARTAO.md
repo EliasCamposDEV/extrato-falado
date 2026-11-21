@@ -1,4 +1,4 @@
-# Design — Cartão de crédito (fatura, parcelas, internacional)
+# Design, Cartão de crédito (fatura, parcelas, internacional)
 
 > Status: **desenho, ainda não codado.** Nada foi alterado no código. Este documento é o plano para aprovação antes da implementação.
 > Contexto: app pessoal "Extrato Falado" - hoje trata toda conta como conta corrente. A maior lacuna para o usuário comum é cartão de crédito (fatura que atravessa meses, parcelamento, compra internacional).
@@ -7,12 +7,12 @@
 
 ## 0. O que o usuário realmente quer (jobs to be done)
 
-1. **"Quanto gastei no cartão este mês?"** — soma das parcelas que *caíram* na fatura do mês (não só compras novas).
-2. **"O que já está comprometido nos próximos meses?"** — parcelas futuras de compras já feitas.
-3. **"Para onde foi o dinheiro do cartão?"** — breakdown por categoria/estabelecimento da fatura.
-4. **"Quanto foi parcelado vs à vista?"** — dimensão nova, hoje inexistente.
-5. **"Quanto foi em moeda estrangeira e quanto de IOF?"** — transparência de internacional.
-6. **Sem dupla contagem** — a fatura paga pelo débito não pode virar despesa duas vezes.
+1. **"Quanto gastei no cartão este mês?"**, soma das parcelas que *caíram* na fatura do mês (não só compras novas).
+2. **"O que já está comprometido nos próximos meses?"**, parcelas futuras de compras já feitas.
+3. **"Para onde foi o dinheiro do cartão?"**, breakdown por categoria/estabelecimento da fatura.
+4. **"Quanto foi parcelado vs à vista?"**, dimensão nova, hoje inexistente.
+5. **"Quanto foi em moeda estrangeira e quanto de IOF?"**, transparência de internacional.
+6. **Sem dupla contagem**, a fatura paga pelo débito não pode virar despesa duas vezes.
 
 O app já responde 1 e 3 para conta corrente. O desenho abaixo estende isso para cartão **sem quebrar** o motor (QuerySpec/compile/execute/render).
 
@@ -22,7 +22,7 @@ O app já responde 1 e 3 para conta corrente. O desenho abaixo estende isso para
 
 - **Reusar o motor, não duplicar.** Nenhuma nova intenção de query. Filtros existentes (`from/to`, `account`, `category`, `direction`, `source`) continuam valendo. Adiciona-se um filtro `installment` pequeno e um endpoint de projeção.
 - **Parcela é uma linha real.** O extrato do banco já lista cada parcela como lançamento futuro. Tratá-la como transação com metadados preserva dedupe, saldo, queries e o princípio "SQL é a única fonte de números".
-- **Não inventar dado.** Projeção de parcelas futuras é *derivada* (calculada), nunca gravada como transação — para não poluir contagens/somas e para o LLM não incluí-la por engano.
+- **Não inventar dado.** Projeção de parcelas futuras é *derivada* (calculada), nunca gravada como transação, para não poluir contagens/somas e para o LLM não incluí-la por engano.
 - **Sinais consistentes.** Compra no cartão = valor negativo (despesa). Pagamento da fatura = transferência interna (já detectada). Saldo do cartão = soma (negativo = dívida). Nenhuma mudança na matemática do resumo.
 - **Escopo v1 enxuto.** Fora: juros rotativo, anuidade, cashback/pontos, limite de crédito, cartão de débito (é conta corrente), múltiplas moedas de conta.
 
@@ -96,13 +96,13 @@ Hoje remove datas e ids longos. Adicionar remoção do token de parcela, para qu
 - **OFX:** ler `<CURDEF>` (moeda da conta) e, por transação, `<ORIGCURRENCY>` + `<ORIGAMT>` quando presentes. Gravar `currency_code`, `original_minor`, `fx_rate` (calculado: amount/original, como texto), `fx_date = posted_at`.
 - **CSV/PDF:** regex para códigos/símbolos conhecidos (`USD`, `EUR`, `GBP`, `US$`, `€`, `£`, `DOLAR`, `EURO`) e taxa (`taxa 5,23`, `cotacao 5.23`). Gravar o que for parseável.
 - **Regra de ouro:** se só o valor em BRL está disponível (caso comum em extratos brasileiros), gravar `currency_code='BRL'` e campos FX null. **Nunca inventar taxa.**
-- **IOF:** se desmembrado como linha separada, é um lançamento normal (categoria "Impostos"/"IOF") — sem tratamento especial. Se embutido, `amount_cents` já inclui; gravar `iof_cents` quando parseável, senão null.
+- **IOF:** se desmembrado como linha separada, é um lançamento normal (categoria "Impostos"/"IOF"), sem tratamento especial. Se embutido, `amount_cents` já inclui; gravar `iof_cents` quando parseável, senão null.
 - **Sanity check (análogo à conferência de saldo):** se `original_minor` e `fx_rate` existem, `original_minor * rate` deve bater com `amount_cents` dentro de 1%. Se não bater, avisar no recibo, não bloquear (câmbio tem spread).
 
 ### 3.4 Import em conta `credit_card`
 
 - Saldo reportado = total da fatura (debt). Gravar em `account_balances` com sinal negativo (consistente com despesa). A conferência `previous + sum == reported` funciona se a fatura inclui o pagamento; se não incluir, avisar (não bloquear).
-- O pagamento da fatura (débito→cartão) é detectado pelo `detectInternalTransfers` já existente (mesmo valor, contas diferentes, ≤3 dias). Considerar ampliar a janela para cartão (pagamento pode ser agendado) — configurável, default 5 dias para pares envolvendo `credit_card`.
+- O pagamento da fatura (débito→cartão) é detectado pelo `detectInternalTransfers` já existente (mesmo valor, contas diferentes, ≤3 dias). Considerar ampliar a janela para cartão (pagamento pode ser agendado), configurável, default 5 dias para pares envolvendo `credit_card`.
 - Recibo de import ganha: "fatura de X lançamentos, total R$ Y, fechamento Z".
 
 ### 3.5 Categorização de parcelas
@@ -201,7 +201,7 @@ Permite perguntas como "quanto foi parcelado" / "quanto foi à vista" sem mudar 
 3. **Internacional: guardar moeda original ou só BRL?** Recomendo **guardar quando parseável**, senão BRL-only. Nunca inventar taxa.
 4. **IOF: linha separada ou embutido?** Recomendo **embutido no `amount_cents`** (é o que o usuário pagou) + `iof_cents` quando desmembrável.
 5. **Pagamento de fatura: automático ou manual?** Recomendo **automático** via `detectInternalTransfers` (já existe), com aviso no recibo de import.
-6. **Escopo de "cartão":** só crédito (fatura). Débito é conta corrente — fora.
+6. **Escopo de "cartão":** só crédito (fatura). Débito é conta corrente, fora.
 
 Defaults recomendados estão marcados como "Recomendo". Se concordar com todos, começo pela Fase 1 (data + ingestão), que é a parte que mexe em schema e por isso precisa ser feita com cuidado e testes antes de qualquer UI.
 

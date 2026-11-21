@@ -67,5 +67,5 @@ export const MONTHS = [
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
 ];
 
-/** Rótulo de três letras (OUT), derivado do nome — não é uma segunda lista. */
+/** Rótulo de três letras (OUT), derivado do nome, não é uma segunda lista. */
 export const MONTHS_SHORT = MONTHS.map((month) => month.slice(0, 3).toUpperCase());

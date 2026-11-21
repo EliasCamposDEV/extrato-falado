@@ -15,7 +15,7 @@ const MIN_MATCH = 5;
  *
  * Se a pergunta menciona uma contraparte que existe no extrato e a spec nao
  * filtra por nada especifico, o guard injeta o filtro de texto. Sem isso,
- * "quanto enviei para fulano" vira o total de todos os lancamentos — um numero
+ * "quanto enviei para fulano" vira o total de todos os lancamentos, um numero
  * errado com cara de certo.
  */
 export function applyEntityGuard(db: Db, spec: QuerySpec, question: string): GuardResult {

@@ -104,7 +104,7 @@ export function buildStatementPdf(db: Db, options?: { source?: string; from?: st
 
     // capa
     doc.font('Helvetica-Bold').fontSize(18).fillColor('#1A2536').text('Extrato Falado', left, 40);
-    doc.font('Helvetica').fontSize(10).fillColor('#454F5E').text('Super extrato — lançamentos consolidados', left, 64);
+    doc.font('Helvetica').fontSize(10).fillColor('#454F5E').text('Super extrato, lançamentos consolidados', left, 64);
     // periodo do papel: o recorte pedido ou, sem recorte, a primeira e a ultima data do banco
     const period = options?.from && options?.to
       ? `${shortDate(options.from)} a ${shortDate(options.to)}`
@@ -206,7 +206,7 @@ export function buildStatementPdf(db: Db, options?: { source?: string; from?: st
     doc.text(`${money(totalIn + totalOut)}`, columns.value, y, { width: right - columns.value, align: 'right' });
     y += 18;
     doc.font('Helvetica').fontSize(8).fillColor('#5F6F63').text(
-      'Gerado pelo Extrato Falado — nenhum token somado; todo valor veio do SQLite.',
+      'Gerado pelo Extrato Falado, nenhum token somado; todo valor veio do SQLite.',
       left,
       y,
       { width: right - left },
@@ -252,11 +252,11 @@ export function buildProofPdf(payload: AskPayload): Promise<Buffer> {
     } else if (payload.outcome.kind === 'list') {
       const rows = payload.outcome.rows
         .slice(0, 12)
-        .map((row, index) => `${String(index + 1).padStart(2)}. ${row.postedAt} · ${row.merchant} — ${brl(row.amountCents)}`)
+        .map((row, index) => `${String(index + 1).padStart(2)}. ${row.postedAt} · ${row.merchant}, ${brl(row.amountCents)}`)
         .join('\n');
       field('Lançamentos', `${payload.outcome.rows.length} no recorte · ${scope}\n${rows}`);
     } else {
-      const rows = payload.outcome.rows.slice(0, 12).map((row, index) => `${String(index + 1).padStart(2)}. ${row.label} — ${brl(row.totalCents)}`).join('\n');
+      const rows = payload.outcome.rows.slice(0, 12).map((row, index) => `${String(index + 1).padStart(2)}. ${row.label}, ${brl(row.totalCents)}`).join('\n');
       field('Número apurado', `${brl(payload.outcome.totalCents)} no total · ${scope}\n${rows}`);
     }
 

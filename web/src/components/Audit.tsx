@@ -94,7 +94,7 @@ export function Audit({ result, summary, entryNo, open, narrow, exporting = fals
           {result ? (
             <pre className="sql">{formatSql(result.sql)}</pre>
           ) : (
-            <pre className="sql is-empty">—</pre>
+            <pre className="sql is-empty">-</pre>
           )}
         </div>
 
@@ -111,11 +111,11 @@ export function Audit({ result, summary, entryNo, open, narrow, exporting = fals
         <dl className="metrics">
           <div>
             <dt>planner</dt>
-            <dd>{result ? plannerLabel(result.planner) : '—'}</dd>
+            <dd>{result ? plannerLabel(result.planner) : '-'}</dd>
           </div>
           <div>
             <dt>tempo</dt>
-            <dd>{result ? `${result.ms} ms` : '—'}</dd>
+            <dd>{result ? `${result.ms} ms` : '-'}</dd>
           </div>
           <div>
             <dt>tokens somados</dt>
@@ -127,7 +127,7 @@ export function Audit({ result, summary, entryNo, open, narrow, exporting = fals
           </div>
           <div>
             <dt>período</dt>
-            <dd>{summary ? periodInfo({ from: summary.from, to: summary.to }).full : '—'}</dd>
+            <dd>{summary ? periodInfo({ from: summary.from, to: summary.to }).full : '-'}</dd>
           </div>
           {result?.followUp ? (
             <div>

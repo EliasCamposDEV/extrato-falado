@@ -257,7 +257,7 @@ export function Ledger({
 
           {loading || !result ? (
             <p className="total-value is-pending" aria-hidden="true">
-              —
+              -
             </p>
           ) : parts ? (
             <p className="total-value" key={valueKey}>
@@ -280,7 +280,7 @@ export function Ledger({
           </div>
           <div>
             <span>extrato</span>
-            <b>{summary ? summary.month.replace('-', '/') : '—'}</b>
+            <b>{summary ? summary.month.replace('-', '/') : '-'}</b>
           </div>
         </div>
       </div>

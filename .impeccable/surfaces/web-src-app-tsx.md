@@ -5,7 +5,7 @@ primary_target: "web/src/App.tsx"
 related_targets: []
 ---
 
-# Home — consulta sobre o extrato
+# Home, consulta sobre o extrato
 
 Rota única `/`. Superfície **Operate**: o visitante vem fazer uma pergunta sobre o próprio dinheiro, e quem avalia vem ver o mecanismo funcionando. Sem login.
 
@@ -32,9 +32,9 @@ Tarefa primária: fazer uma pergunta e ver o valor com a consulta que o produziu
 
 ## Direção escolhida
 
-**O saldo carimbado** — caderneta de poupança: capa azul, página pautada, lançamento com código de conta, coluna de acumulado e carimbo do período. A folha de prova translúcida fica sobre a página, não ao lado: a auditoria é uma camada do mesmo objeto.
+**O saldo carimbado**, caderneta de poupança: capa azul, página pautada, lançamento com código de conta, coluna de acumulado e carimbo do período. A folha de prova translúcida fica sobre a página, não ao lado: a auditoria é uma camada do mesmo objeto.
 
-Momento memorável: a resposta entra como lançamento — o total é carimbado sob o olho, e o valor anterior some sob a tinta.
+Momento memorável: a resposta entra como lançamento, o total é carimbado sob o olho, e o valor anterior some sob a tinta.
 
 ## Direction contract
 

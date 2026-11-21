@@ -2,17 +2,17 @@
 
 Chat sobre o seu extrato bancário que **nunca erra a conta**.
 
-Você pergunta em português — _"quanto gastei com delivery em outubro?"_ — e recebe o valor exato, com o SQL que gerou o número na tela.
+Você pergunta em português, _"quanto gastei com delivery em outubro?"_, e recebe o valor exato, com o SQL que gerou o número na tela.
 
 ---
 
 ## O problema
 
-Todo mundo abre o extrato, olha, fecha e continua sem saber para onde foi o salário. Os apps de banco mostram gráfico, mas não respondem pergunta específica — e quando respondem, é num chat genérico que **inventa números**.
+Todo mundo abre o extrato, olha, fecha e continua sem saber para onde foi o salário. Os apps de banco mostram gráfico, mas não respondem pergunta específica, e quando respondem, é num chat genérico que **inventa números**.
 
 ## Como funciona
 
-A regra é uma: **o modelo traduz, o banco soma.** Todo projeto de "converse com seus dados" falha no mesmo ponto — deixa o LLM somar, e LLM soma mal. Aqui ele nunca vê um valor:
+A regra é uma: **o modelo traduz, o banco soma.** Todo projeto de "converse com seus dados" falha no mesmo ponto, deixa o LLM somar, e LLM soma mal. Aqui ele nunca vê um valor:
 
 ```
 pergunta ──▶ QuerySpec (JSON validado) ──▶ SQL parametrizado ──▶ SQLite (centavos) ──▶ frase em pt-BR
@@ -22,7 +22,7 @@ Três regras que sustentam o projeto:
 
 1. **O modelo é compilador, não calculadora.** Ele só traduz a pergunta para um filtro estruturado.
 2. **Só o SQLite produz números.** Nenhum valor passa pelo LLM, então errar a conta é impossível por construção.
-3. **Toda resposta é auditável.** O SQL aparece junto — dá para conferir em vez de confiar.
+3. **Toda resposta é auditável.** O SQL aparece junto, dá para conferir em vez de confiar.
 
 ## Arquitetura
 
@@ -56,7 +56,7 @@ Nenhum número do PDF passa pelo LLM: o parser entrega lançamentos em centavos 
 Compra de cartão tem duas datas: quando você comprou e em qual fatura ela caiu. O import guarda as duas (`posted_at` e `invoice_month`):
 
 - **O mês da fatura vem do arquivo** quando o texto se identifica como fatura (`cartão de crédito final`, `fatura`, `vencimento`, `limite disponível`); o vencimento é a âncora. Se o arquivo não se anuncia, dá para informar o mês no campo `fatura` da tela (ou `invoiceMonth` na API).
-- **Parcelamento vira coluna.** `PARCELA 3/10`, `parcela 2 de 6`, `(4/12)` e o sufixo `1/3` viram `installment_no`/`installment_total` e saem da descrição — o estabelecimento continua o mesmo para categorizar e agrupar.
+- **Parcelamento vira coluna.** `PARCELA 3/10`, `parcela 2 de 6`, `(4/12)` e o sufixo `1/3` viram `installment_no`/`installment_total` e saem da descrição, o estabelecimento continua o mesmo para categorizar e agrupar.
 - **`fatura de outubro` filtra `invoice_month`, não `posted_at`.** A compra de agosto que caiu na fatura de outubro entra no total de outubro uma única vez; reimportar a fatura não duplica nada.
 
 ### Arquivo que não é extrato
@@ -73,7 +73,7 @@ O import é fechado por padrão: na dúvida, recusa em vez de gravar lixo.
 A API não tem login e escuta só em `127.0.0.1`. Além disso:
 
 - `POST` exige `content-type: application/json` (fecha formulário cross-site) e recusa `Origin` que não seja loopback.
-- `Host` que não seja `localhost`/`127.0.0.1`/`::1` é recusado — proteção contra DNS rebinding.
+- `Host` que não seja `localhost`/`127.0.0.1`/`::1` é recusado, proteção contra DNS rebinding.
 - Corpo limitado por rota: 12 MB no import (8 MB de PDF em base64) e 256 KB nas demais.
 - Toda resposta leva `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` e `Permissions-Policy`.
 - O arquivo importado não é salvo em disco; só os lançamentos normalizados entram no SQLite.
@@ -125,15 +125,15 @@ A API não tem login e escuta só em `127.0.0.1`. Além disso:
 
 ## Interface web
 
-A demo abre pronta no último mês completo e já mostra a resposta com o SQL ao lado — sem clique, sem configuração.
+A demo abre pronta no último mês completo e já mostra a resposta com o SQL ao lado, sem clique, sem configuração.
 
 - **A pergunta vira lançamento.** O total entra na linha `4.0` com o carimbo do período; as categorias aparecem como linhas de extrato, com código fixo (`4.6` = Moradia), valor e acumulado.
 - **A prova é uma camada.** A folha translúcida sobre a página traz o SQL executado, os parâmetros, o planner, o tempo, `0 tokens somados` e o `QuerySpec` completo.
 - **Troca de mês pela lombada.** As abas de mês mudam o extrato inteiro: resumo, consulta padrão e lista de lançamentos.
 - **Período livre.** Os campos `de`/`até` recortam resumo, lista e consulta para qualquer intervalo; `mês todo` volta para as abas. As rotas aceitam `?month=` ou `?from=&to=`.
 - **Importa o seu arquivo.** CSV, OFX ou PDF (Nubank, Caixa, BB, PicPay e Santander, com OCR quando o PDF é imagem), até 12 MB (8 MB no PDF), com recibo de linhas lidas, novas e já existentes. A conta sai do próprio arquivo (OFX `BANKID`/`ACCTID` ou cabeçalho do CSV) e pode ser corrigida no campo `conta do arquivo`; fatura de cartão tem campo `fatura`, e o parcelamento entra no recibo. Arquivo que não é extrato é recusado sem apagar o que já estava carregado. Os lançamentos ficam no SQLite local; nada sai da máquina.
-- **Junta tudo num super extrato.** O botão `exportar PDF` gera um PDF com capa, resumo geral, resumo por conta, os lançamentos ordenados por data com subtotal por mês e o total geral — respeitando o período livre e a fonte escolhidos na tela.
-- **Prova em papel.** A folha de prova tem um botão que baixa um PDF com a pergunta, a resposta, o número apurado, o SQL, os parâmetros e o `QuerySpec` — o mesmo recorte que estava na tela, sem replanejar.
+- **Junta tudo num super extrato.** O botão `exportar PDF` gera um PDF com capa, resumo geral, resumo por conta, os lançamentos ordenados por data com subtotal por mês e o total geral, respeitando o período livre e a fonte escolhidos na tela.
+- **Prova em papel.** A folha de prova tem um botão que baixa um PDF com a pergunta, a resposta, o número apurado, o SQL, os parâmetros e o `QuerySpec`, o mesmo recorte que estava na tela, sem replanejar.
 - **Continua a conversa.** Depois de uma resposta, o chip `e no mês anterior?` refaz a consulta no mês anterior ao da pergunta (não ao do relógio), herdando intenção e filtros.
 - **Explica e corrige.** Cada lançamento tem `?` (por que essa categoria?), `↔` (marcar como transferência interna) e `↩` (marcar como estorno); a marcação manual sobrevive a uma nova detecção automática.
 - **Responsivo de verdade.** Em 390px a prova sobe como bottom sheet com scrim, o campo de consulta gruda na base e as colunas secundárias somem.
@@ -173,7 +173,7 @@ npm run ask -- "quanto gastei com besteira em outubro"
 
 ## Deploy
 
-O app é um processo Node com um arquivo SQLite: o mesmo container serve interface e API. O `Dockerfile` deixa `/data` como volume — é lá que ficam `extrato.db` e o cache do OCR.
+O app é um processo Node com um arquivo SQLite: o mesmo container serve interface e API. O `Dockerfile` deixa `/data` como volume, é lá que ficam `extrato.db` e o cache do OCR.
 
 ```bash
 docker build -t extrato-falado .
@@ -225,7 +225,7 @@ Com `OWNER_KEY` definida, todo `POST`/`PATCH`/`DELETE` que grava (importar, recl
 https://extrato-falado.onrender.com/?chave=SUA_CHAVE
 ```
 
-A chave sai da URL, vira cookie `HttpOnly` de 30 dias e a página recarrega. Vale onde o próprio app serve a UI (Render, `npm start`); na Vercel, que publica o `web/dist` como site estático, `/?chave=` não chega à função — lá o modo é só leitura por desenho. `/api/health` informa `ownerMode` e `readOnly`; a UI esconde importação e edição quando `readOnly` é `true`.
+A chave sai da URL, vira cookie `HttpOnly` de 30 dias e a página recarrega. Vale onde o próprio app serve a UI (Render, `npm start`); na Vercel, que publica o `web/dist` como site estático, `/?chave=` não chega à função, lá o modo é só leitura por desenho. `/api/health` informa `ownerMode` e `readOnly`; a UI esconde importação e edição quando `readOnly` é `true`.
 
 ## Saída real
 
@@ -252,8 +252,8 @@ O `SUM(...) OVER ()` garante que o total da resposta seja o do recorte inteiro (
 
 `npm run eval` mede **duas coisas separadas**, porque falham por motivos diferentes:
 
-- **Planner** — o filtro gerado é o mesmo do gabarito? (o modelo entendeu a pergunta?)
-- **Resposta** — o resultado executado é idêntico? (o número bateu?)
+- **Planner**, o filtro gerado é o mesmo do gabarito? (o modelo entendeu a pergunta?)
+- **Resposta**, o resultado executado é idêntico? (o número bateu?)
 
 ```
 Planner heurístico (offline) · 12 casos
@@ -268,10 +268,10 @@ Para medir o planner LLM: copie `.env.example` para `.env`, defina `PLANNER=open
 ## Decisões de projeto
 
 1. **Dinheiro em centavos (`INTEGER`).** `0.1 + 0.2 !== 0.3`; banco não pode ter esse problema.
-2. **Nenhum valor entra na string do SQL.** Pergunta, categoria e nome de estabelecimento vão sempre como parâmetro do prepared statement — tem teste para isso.
+2. **Nenhum valor entra na string do SQL.** Pergunta, categoria e nome de estabelecimento vão sempre como parâmetro do prepared statement, tem teste para isso.
 3. **Template em vez de geração livre na resposta.** O texto é previsível, testável e não pode inventar um número que o SQL não devolveu.
 4. **Dedupe pelo `fitid` do banco quando existe; senão por um id estável do lançamento.** Duas compras iguais no mesmo dia continuam sendo duas; reimportar o mesmo arquivo não duplica nada.
-5. **Guard de contraparte.** Se a pergunta cita um nome que existe no extrato e o planner esquece o filtro, o servidor injeta `filters.text` — melhor recusar o total genérico do que devolver um número errado com cara de certo.
+5. **Guard de contraparte.** Se a pergunta cita um nome que existe no extrato e o planner esquece o filtro, o servidor injeta `filters.text`, melhor recusar o total genérico do que devolver um número errado com cara de certo.
 6. **Continuação sem modelo.** "E no mês anterior?" é resolvido por heurística determinística sobre a spec anterior; o modelo não vê o histórico, então não pode inventar um recorte novo.
 
 ## Limitações (de propósito, documentadas)

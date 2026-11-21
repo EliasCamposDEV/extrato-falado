@@ -19,7 +19,7 @@ Duas audiências confirmadas:
 
 ## Product Purpose
 
-Responder perguntas em linguagem natural sobre um extrato bancário com precisão contábil. Sucesso é quando a pessoa faz três perguntas seguidas e nenhuma resposta precisa ser conferida na mão — e quando quem avalia o projeto entende o mecanismo sem abrir o código.
+Responder perguntas em linguagem natural sobre um extrato bancário com precisão contábil. Sucesso é quando a pessoa faz três perguntas seguidas e nenhuma resposta precisa ser conferida na mão, e quando quem avalia o projeto entende o mecanismo sem abrir o código.
 
 ## Positioning
 
@@ -42,7 +42,7 @@ Demo pública de portfólio, aberta em desktop e celular, muitas vezes sem inter
 
 ## Evidence on Hand
 
-- `data/sample-extrato.csv` — 61 lançamentos fictícios, ago–nov/2026 (rotular como sintético na interface).
+- `data/sample-extrato.csv`, 61 lançamentos fictícios, ago–nov/2026 (rotular como sintético na interface).
 - `npm run eval` - 12/12 no planner e na resposta; `npm test` - 65 testes.
 - README com a arquitetura e as decisões.
 
@@ -51,7 +51,7 @@ Não existem clientes, depoimentos, números de uso ou benchmarks externos. Nada
 ## Product Principles
 
 1. O número nunca é opinião: se não veio do SQLite, não aparece na tela.
-2. Mostrar o mecanismo, não só o resultado — o SQL é parte da resposta, não um detalhe técnico escondido.
+2. Mostrar o mecanismo, não só o resultado, o SQL é parte da resposta, não um detalhe técnico escondido.
 3. Confiança antes de encanto: a interface pode ter personalidade, mas nunca ao custo de legibilidade do valor.
 4. Dado sintético é declarado como sintético.
 5. Uma pergunta por vez, com o contexto do período sempre visível.

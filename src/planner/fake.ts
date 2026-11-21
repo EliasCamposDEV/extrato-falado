@@ -71,7 +71,7 @@ function extractCounterparty(q: string): string | null {
 
 /**
  * Planeja pelo vocabulario do dia a dia, sem LLM.
- * Cobre o vocabulario do dia a dia e serve de baseline do eval —
+ * Cobre o vocabulario do dia a dia e serve de baseline do eval -
  * qualquer LLM tem que bater pelo menos isso.
  */
 export function planHeuristic({ question, today }: PlanInput): QuerySpec {

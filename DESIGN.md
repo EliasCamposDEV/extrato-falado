@@ -144,7 +144,7 @@ Paleta de agência bancária antiga: azul de capa, papel cru, tinta navalha, ver
 **Body Font:** Archivo (com system-ui)
 **Label/Mono Font:** Cascadia Mono (com ui-monospace, Consolas)
 
-**Character:** Uma condensada de jornal para o dinheiro e uma grotesca neutra para a leitura; o mono entra como voz de máquina — códigos, períodos, parâmetros — e nunca como corpo de texto.
+**Character:** Uma condensada de jornal para o dinheiro e uma grotesca neutra para a leitura; o mono entra como voz de máquina, códigos, períodos, parâmetros, e nunca como corpo de texto.
 
 ### Hierarchy
 

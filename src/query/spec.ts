@@ -2,7 +2,7 @@
  * O "AST" do projeto.
  *
  * A LLM nunca ve numeros e nunca escreve SQL: ela so produz um QuerySpec.
- * Isso torna impossivel inventar um valor — o unico componente que soma
+ * Isso torna impossivel inventar um valor, o unico componente que soma
  * e o SQLite. Todo o resto do sistema depende deste tipo.
  */
 

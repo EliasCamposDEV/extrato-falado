@@ -4,7 +4,7 @@ import type { QuerySpec } from './spec.ts';
 
 const MERGED_FILTERS = ['from', 'to', 'categories', 'merchants', 'text', 'direction', 'minCents', 'maxCents', 'invoice'] as const;
 
-/** "e em setembro?" / "então e no mercado?" — pergunta que depende da anterior. */
+/** "e em setembro?" / "então e no mercado?", pergunta que depende da anterior. */
 export function isFollowUp(question: string): boolean {
   const q = stripAccents(question).toLowerCase().trim();
   return /^(e|entao|agora)\b/.test(q);
@@ -27,7 +27,7 @@ function relativePeriod(question: string, previous: QuerySpec): { from: string; 
 
 /**
  * Continua a consulta anterior: herda o que a nova pergunta nao redefine.
- * Deterministico de proposito — o contexto nao passa pelo modelo.
+ * Deterministico de proposito, o contexto nao passa pelo modelo.
  */
 export function mergeFollowUp(previous: QuerySpec, next: QuerySpec, question = ''): QuerySpec {
   const shifted = relativePeriod(question, previous);

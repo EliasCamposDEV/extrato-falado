@@ -1,0 +1,39 @@
+# Blueprint do Render: o app roda no Dockerfile e o SQLite fica no disco do
+# container. No plano free nao existe disco persistente: os dados sobrevivem
+# enquanto a instancia esta acordada e voltam para a amostra quando ela dorme
+# ou e redeployada. Para persistir de verdade, troque plan para starter e
+# descomente o bloco `disk`.
+services:
+  - type: web
+    name: extrato-falado
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # o proxy do Render entrega o Host/Origin do dominio publico
+      - key: PUBLIC_HOSTS
+        value: extrato-falado.onrender.com
+      - key: EXTRATO_DB
+        value: /data/extrato.db
+      # planner offline: deterministico e sem chave de API.
+      - key: PLANNER
+        value: fake
+      # demo publica: o extrato e somente leitura para todos; visitantes so
+      # registram lancamentos manuais (isolados por sessao) depois do consentimento.
+      - key: PUBLIC_DEMO
+        value: '1'
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # - key: OPENAI_BASE_URL
+      #   value: https://api.groq.com/openai/v1
+      # - key: OPENAI_MODEL
+      #   value: openai/gpt-oss-120b
+    # disk:
+    #   name: extrato
+    #   mountPath: /data
+    #   sizeGB: 1

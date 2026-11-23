@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+.impeccable
+node_modules
+web/dist
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+data/ocr
+.env
+.env.*
+!.env.example
+*.log
